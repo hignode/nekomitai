@@ -1,0 +1,22 @@
+# dependencies & builds
+node_modules/
+dist/
+dist-ssr/
+*.zxp
+*.p12
+*.local
+
+# local state
+.env
+.env.local
+*.log
+yarn-error.log
+.DS_Store
+Thumbs.db
+.media
+
+# runtime caches (never commit user data)
+cache/
+
+# signing tool (downloaded on demand; see README)
+tools/

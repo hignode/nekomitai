@@ -1,0 +1,944 @@
+/* Nekomitai panel shell.
+   Palette comes from AE's own appearance via CSS variables set in main.tsx
+   (applyTheme); these are the dark-appearance defaults used until the first
+   ThemeColorChanged event lands. */
+
+:root {
+  --nm-bg: #232323;
+  --nm-surface: #2d2d2d;
+  --nm-surface-2: #373737;
+  --nm-line: #454545;
+  --nm-ink: #e8e9ee;
+  --nm-muted: #9ea1ac;
+  --nm-accent: #8f97f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--nm-bg);
+  color: var(--nm-ink);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.nm-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── top navigation ─────────────────────────────── */
+.nm-topnav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--nm-line);
+  flex: 0 0 auto;
+
+  .nm-logo {
+    display: flex;
+    align-items: center;
+  }
+
+  nav {
+    display: flex;
+    gap: 2px;
+
+    button {
+      background: none;
+      border: 0;
+      border-radius: 4px;
+      color: var(--nm-muted);
+      padding: 4px 10px;
+
+      &:hover {
+        background: var(--nm-surface);
+        color: var(--nm-ink);
+      }
+      &.active {
+        background: var(--nm-surface-2);
+        color: var(--nm-ink);
+      }
+      &:focus-visible {
+        outline: 1px solid var(--nm-accent);
+      }
+    }
+  }
+
+  .nm-shield {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--nm-accent-soft, rgba(143, 151, 248, 0.16));
+    color: var(--nm-accent);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    &:hover {
+      border-color: var(--nm-accent);
+    }
+  }
+
+  .nm-gw-dot {
+    margin-left: auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--nm-muted);
+    &.ok {
+      background: #7cc291;
+    }
+    &.err {
+      background: #e0716f;
+    }
+  }
+  .nm-shield + .nm-gw-dot {
+    margin-left: 8px;
+  }
+}
+
+/* ── settings ───────────────────────────────────── */
+.nm-settings {
+  padding: 16px 18px;
+  overflow-y: auto;
+  user-select: text;
+
+  h2 {
+    margin: 0 0 14px;
+    font-size: 15px;
+  }
+  h3 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--nm-muted);
+  }
+
+  section {
+    margin-bottom: 22px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--nm-line);
+  }
+  section:last-child {
+    border-bottom: none;
+  }
+
+  .nm-hint {
+    color: var(--nm-muted);
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 4px 0;
+    max-width: 60ch;
+  }
+  .nm-note {
+    color: var(--nm-accent);
+  }
+
+  .nm-switch {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 0;
+    cursor: pointer;
+
+    input {
+      margin-top: 2px;
+      accent-color: var(--nm-accent);
+    }
+    strong {
+      font-weight: 600;
+    }
+  }
+
+  .nm-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  button {
+    background: var(--nm-surface-2);
+    color: var(--nm-ink);
+    border: 1px solid var(--nm-line);
+    border-radius: 5px;
+    padding: 5px 12px;
+    &:hover:not(:disabled) {
+      border-color: var(--nm-accent);
+    }
+    &:disabled {
+      opacity: 0.5;
+    }
+    &.nm-primary {
+      background: var(--nm-accent);
+      color: var(--nm-bg);
+      border-color: var(--nm-accent);
+      font-weight: 600;
+    }
+  }
+
+  .nm-cookie-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+
+    input,
+    textarea {
+      background: var(--nm-bg);
+      border: 1px solid var(--nm-line);
+      border-radius: 5px;
+      color: var(--nm-ink);
+      padding: 6px 9px;
+      font: inherit;
+      user-select: text;
+      resize: vertical;
+      &:focus {
+        outline: none;
+        border-color: var(--nm-accent);
+      }
+    }
+    textarea {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+    }
+  }
+
+  .nm-guide {
+    background: var(--nm-surface);
+    border: 1px solid var(--nm-line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 10px;
+
+    ol {
+      margin: 4px 0 8px;
+      padding-left: 20px;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    code {
+      background: var(--nm-surface-2);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+    }
+  }
+
+  .nm-domains {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .nm-domain-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--nm-surface);
+      border: 1px solid var(--nm-line);
+      border-radius: 5px;
+      padding: 5px 10px;
+      font-size: 12px;
+
+      button {
+        padding: 2px 10px;
+      }
+    }
+    .nm-clear-all {
+      align-self: flex-start;
+      margin-top: 6px;
+      color: var(--nm-danger, #e0716f);
+      border-color: transparent;
+    }
+  }
+}
+
+.nm-logo-dot {
+  color: var(--nm-accent);
+}
+
+/* white wordmark PNG; --nm-logo-filter inverts it on bright AE themes */
+.nm-logo-img {
+  display: block;
+  height: 14px;
+  width: auto;
+  filter: var(--nm-logo-filter, none);
+}
+
+.nm-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── browser ────────────────────────────────────── */
+.nm-keepalive {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+
+  &.hidden {
+    display: none;
+  }
+}
+
+.nm-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.nm-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 0;
+  overflow-x: auto;
+  flex: 0 0 auto;
+
+  .nm-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 5px 5px 0 0;
+    background: var(--nm-surface);
+    color: var(--nm-muted);
+    max-width: 160px;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &.active {
+      background: var(--nm-surface-2);
+      color: var(--nm-ink);
+    }
+
+    .nm-tab-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nm-tab-close {
+      background: none;
+      border: 0;
+      color: var(--nm-muted);
+      padding: 0 3px;
+      border-radius: 3px;
+      &:hover {
+        color: var(--nm-ink);
+        background: var(--nm-line);
+      }
+    }
+  }
+
+  .nm-tab-add {
+    background: none;
+    border: 0;
+    color: var(--nm-muted);
+    font-size: 14px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    &:hover {
+      background: var(--nm-surface);
+      color: var(--nm-ink);
+    }
+  }
+}
+
+.nm-omnibar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--nm-line);
+  flex: 0 0 auto;
+
+  input {
+    flex: 1;
+    background: var(--nm-surface);
+    border: 1px solid var(--nm-line);
+    border-radius: 5px;
+    color: var(--nm-ink);
+    padding: 5px 10px;
+    font: inherit;
+    user-select: text;
+
+    &:focus {
+      outline: none;
+      border-color: var(--nm-accent);
+    }
+    &::placeholder {
+      color: var(--nm-muted);
+    }
+  }
+
+  button {
+    background: var(--nm-accent);
+    border: 0;
+    border-radius: 5px;
+    color: var(--nm-bg);
+    font-weight: 600;
+    padding: 5px 14px;
+  }
+
+  .nm-tool {
+    background: var(--nm-surface-2);
+    color: var(--nm-ink);
+    border: 1px solid var(--nm-line);
+    padding: 5px 9px;
+    font-weight: 400;
+
+    svg {
+      display: block;
+    }
+  }
+  .nm-tool:hover {
+    border-color: var(--nm-accent);
+  }
+}
+
+.nm-statusline {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--nm-muted);
+  background: var(--nm-surface);
+  border-bottom: 1px solid var(--nm-line);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── reference player ────────────────────────────── */
+.nm-player {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--nm-line);
+  background: var(--nm-surface);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  .nm-player-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  button,
+  select {
+    background: var(--nm-surface-2);
+    color: var(--nm-ink);
+    border: 1px solid var(--nm-line);
+    border-radius: 4px;
+    padding: 3px 9px;
+    min-width: 26px;
+
+    &:hover {
+      border-color: var(--nm-accent);
+    }
+    &.on {
+      background: var(--nm-accent);
+      color: var(--nm-bg);
+      border-color: var(--nm-accent);
+      font-weight: 600;
+    }
+  }
+
+  .nm-time {
+    color: var(--nm-muted);
+    font-size: 11px;
+    min-width: 40px;
+    text-align: center;
+  }
+
+  .nm-scrub {
+    flex: 1;
+    accent-color: var(--nm-accent);
+    min-width: 60px;
+  }
+
+  .nm-player-tools {
+    flex-wrap: wrap;
+  }
+
+  .nm-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--nm-line);
+    margin: 0 4px;
+  }
+
+  /* Auto-duck toggle. Reads as a labelled switch rather than a mystery
+     glyph: icon + name + an on/off chip, so a first-time user can tell both
+     what it does and which way it is set. Chromium 99 has no color-mix(), so
+     the accent tint is an opacity layer under the content instead of rgba(). */
+  .nm-duck {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 5px 3px 8px;
+    border-radius: 999px;
+    background: var(--nm-surface-2);
+    color: var(--nm-muted);
+    font-weight: 400;
+    white-space: nowrap;
+
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: var(--nm-accent);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      pointer-events: none;
+    }
+
+    > * {
+      position: relative;
+    }
+
+    .nm-duck-label {
+      font-size: 11px;
+      letter-spacing: 0.2px;
+    }
+
+    .nm-duck-state {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      line-height: 1;
+      padding: 3px 5px;
+      border-radius: 999px;
+      background: var(--nm-line);
+      color: var(--nm-muted);
+    }
+
+    &:hover {
+      color: var(--nm-ink);
+      &::before {
+        opacity: 0.08;
+      }
+    }
+
+    /* enabled — accent tint, not a solid accent slab */
+    &.on {
+      background: var(--nm-surface-2);
+      color: var(--nm-ink);
+      border-color: var(--nm-accent);
+      font-weight: 400;
+      &::before {
+        opacity: 0.16;
+      }
+      .nm-duck-state {
+        background: var(--nm-accent);
+        color: var(--nm-bg);
+      }
+      &:hover::before {
+        opacity: 0.24;
+      }
+    }
+
+    /* AE is actually playing right now — the duck is doing its job */
+    &.live {
+      &::before {
+        opacity: 0.28;
+        animation: nm-duck-pulse 1.6s ease-in-out infinite;
+      }
+      .nm-duck-state {
+        animation: nm-duck-pulse 1.6s ease-in-out infinite;
+      }
+    }
+  }
+
+  @keyframes nm-duck-pulse {
+    0%,
+    100% {
+      opacity: 0.28;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  .nm-player-status {
+    color: var(--nm-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nm-flex-spacer {
+    flex: 1;
+  }
+
+  .nm-vol-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--nm-muted);
+  }
+
+  .nm-vol {
+    width: 110px;
+    accent-color: var(--nm-accent);
+  }
+}
+
+.nm-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.nm-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* ── shared placeholder ─────────────────────────── */
+.nm-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  text-align: center;
+  padding: 24px;
+
+  h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  p {
+    margin: 0;
+    color: var(--nm-muted);
+    max-width: 46ch;
+    line-height: 1.6;
+  }
+}
+
+/* ── diagnostics ────────────────────────────────── */
+.nm-diag {
+  padding: 12px 14px;
+  overflow-y: auto;
+  user-select: text;
+
+  .nm-diag-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+    }
+    button {
+      background: var(--nm-surface-2);
+      border: 1px solid var(--nm-line);
+      border-radius: 5px;
+      color: var(--nm-ink);
+      padding: 4px 12px;
+    }
+  }
+
+  .nm-diag-list {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    li {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--nm-surface);
+      border-radius: 5px;
+    }
+  }
+
+  .nm-diag-label {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .nm-diag-detail {
+    color: var(--nm-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .nm-diag-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+
+    button {
+      background: var(--nm-surface-2);
+      border: 1px solid var(--nm-line);
+      border-radius: 5px;
+      color: var(--nm-ink);
+      padding: 5px 12px;
+
+      &:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+    }
+  }
+
+  .nm-diag-embed {
+    margin-bottom: 12px;
+
+    iframe {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--nm-line);
+      border-radius: 6px;
+      background: #000;
+    }
+
+    .nm-diag-verdict {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      color: var(--nm-muted);
+
+      button {
+        background: var(--nm-surface-2);
+        border: 1px solid var(--nm-line);
+        border-radius: 5px;
+        color: var(--nm-ink);
+        padding: 3px 14px;
+      }
+    }
+  }
+}
+
+.nm-chip {
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+
+  &.pass {
+    color: #7cc291;
+    background: rgba(124, 194, 145, 0.14);
+  }
+  &.fail {
+    color: #e0716f;
+    background: rgba(224, 113, 111, 0.14);
+  }
+  &.pending,
+  &.manual {
+    color: #e2a54f;
+    background: rgba(226, 165, 79, 0.14);
+  }
+  &.info {
+    color: var(--nm-accent);
+    background: rgba(143, 151, 248, 0.14);
+  }
+}
+
+/* ── boards ─────────────────────────────────────── */
+.nm-boards {
+  padding: 16px 18px;
+  overflow-y: auto;
+  user-select: text;
+
+  .nm-boards-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+
+    h2 {
+      margin: 0 0 2px;
+      font-size: 15px;
+    }
+    button {
+      background: var(--nm-accent);
+      color: var(--nm-bg);
+      border: 0;
+      border-radius: 5px;
+      padding: 6px 12px;
+      font-weight: 600;
+    }
+  }
+
+  .nm-hint {
+    color: var(--nm-muted);
+    font-size: 11px;
+  }
+
+  .nm-board {
+    margin-bottom: 22px;
+  }
+
+  .nm-board-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--nm-line);
+
+    strong {
+      font-size: 13px;
+    }
+    .nm-board-del {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--nm-line);
+      color: var(--nm-muted);
+      border-radius: 4px;
+      padding: 2px 8px;
+      &:hover {
+        border-color: var(--nm-danger, #e0716f);
+        color: var(--nm-danger, #e0716f);
+      }
+    }
+  }
+
+  .nm-board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+
+  .nm-card-item {
+    background: var(--nm-surface);
+    border: 1px solid var(--nm-line);
+    border-radius: 8px;
+    overflow: hidden;
+
+    .nm-thumb {
+      aspect-ratio: 16 / 9;
+      background: var(--nm-surface-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      overflow: hidden;
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      span {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--nm-accent);
+      }
+    }
+
+    .nm-card-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+
+      span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      button {
+        background: none;
+        border: 0;
+        color: var(--nm-muted);
+        padding: 0 4px;
+        &:hover {
+          color: var(--nm-ink);
+        }
+      }
+    }
+  }
+}
+
+/* ── about ──────────────────────────────────────── */
+.nm-about {
+  padding: 24px;
+  user-select: text;
+
+  h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+
+    .nm-logo-img {
+      height: 22px;
+    }
+  }
+
+  .nm-about-tag {
+    color: var(--nm-muted);
+    margin: 0 0 16px;
+  }
+
+  p {
+    margin: 0 0 8px;
+    line-height: 1.6;
+  }
+
+  a {
+    color: var(--nm-accent);
+    text-decoration: none;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .nm-about-notices {
+    margin-top: 18px;
+    color: var(--nm-muted);
+    font-size: 11px;
+    max-width: 60ch;
+    line-height: 1.6;
+  }
+}

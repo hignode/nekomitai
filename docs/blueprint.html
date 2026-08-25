@@ -1,0 +1,510 @@
+<title>Nekomitai Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #1B1C21;
+    --surface: #232529;
+    --surface2: #2B2D34;
+    --line: #3A3D46;
+    --ink: #EAEBEF;
+    --muted: #A0A3AE;
+    --accent: #929AF9;
+    --accent-soft: rgba(146, 154, 249, 0.14);
+    --amber: #E2A54F;
+    --amber-soft: rgba(226, 165, 79, 0.13);
+    --ok: #7CC291;
+    --ok-soft: rgba(124, 194, 145, 0.12);
+    --danger: #E0716F;
+    --danger-soft: rgba(224, 113, 111, 0.12);
+    --code-bg: #17181C;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #F1F1F6;
+      --surface: #FFFFFF;
+      --surface2: #E9EAF2;
+      --line: #D7D9E4;
+      --ink: #24252C;
+      --muted: #5D6070;
+      --accent: #4A53CC;
+      --accent-soft: rgba(74, 83, 204, 0.10);
+      --amber: #A9701A;
+      --amber-soft: rgba(169, 112, 26, 0.10);
+      --ok: #2E7D4F;
+      --ok-soft: rgba(46, 125, 79, 0.10);
+      --danger: #B04440;
+      --danger-soft: rgba(176, 68, 64, 0.09);
+      --code-bg: #EDEDF4;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F1F1F6;
+    --surface: #FFFFFF;
+    --surface2: #E9EAF2;
+    --line: #D7D9E4;
+    --ink: #24252C;
+    --muted: #5D6070;
+    --accent: #4A53CC;
+    --accent-soft: rgba(74, 83, 204, 0.10);
+    --amber: #A9701A;
+    --amber-soft: rgba(169, 112, 26, 0.10);
+    --ok: #2E7D4F;
+    --ok-soft: rgba(46, 125, 79, 0.10);
+    --danger: #B04440;
+    --danger-soft: rgba(176, 68, 64, 0.09);
+    --code-bg: #EDEDF4;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  h1, h2, h3 {
+    font-family: "Zen Kaku Gothic New", "IBM Plex Sans", sans-serif;
+    line-height: 1.25;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h2 { font-size: 1.55rem; font-weight: 700; margin: 0 0 6px; }
+  h3 { font-size: 1.08rem; font-weight: 700; margin: 28px 0 8px; }
+  p { margin: 0 0 14px; max-width: 72ch; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+  a:hover, a:focus-visible { border-bottom-color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  pre code { background: none; border: none; padding: 0; white-space: pre; }
+
+  /* header */
+  header { padding: 64px 0 40px; border-bottom: 1px solid var(--line); }
+  .kana { font-family: "Zen Kaku Gothic New", sans-serif; color: var(--accent); font-weight: 700; font-size: 0.95rem; letter-spacing: 0.35em; margin-bottom: 10px; }
+  h1 { font-size: clamp(2.5rem, 6vw, 3.6rem); font-weight: 900; letter-spacing: -0.01em; }
+  h1 .paw { color: var(--accent); }
+  .tagline { color: var(--muted); font-size: 1.12rem; margin: 12px 0 22px; max-width: 60ch; }
+  .credits { display: flex; flex-wrap: wrap; gap: 10px 26px; font-size: 0.9rem; color: var(--muted); }
+  .credits strong { color: var(--ink); font-weight: 600; }
+
+  /* section scaffolding */
+  section { padding: 44px 0 8px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .lede { color: var(--muted); max-width: 70ch; }
+
+  /* cards & grids */
+  .grid { display: grid; gap: 12px; margin: 20px 0; }
+  .grid.cols2 { grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 0.98rem; font-weight: 600; font-family: "IBM Plex Sans", sans-serif; }
+  .card p { font-size: 0.92rem; color: var(--muted); margin: 0; max-width: none; }
+  .card .why { display: block; margin-top: 8px; font-size: 0.82rem; color: var(--ink); }
+
+  /* chips */
+  .chip {
+    display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 0.72rem;
+    padding: 2px 9px; border-radius: 999px; letter-spacing: 0.04em; vertical-align: 2px;
+    border: 1px solid var(--line); color: var(--muted); background: var(--surface2);
+  }
+  .chip.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .chip.warn { color: var(--amber); background: var(--amber-soft); border-color: transparent; }
+  .chip.no { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+  .chip.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted); background: var(--surface);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td { background: transparent; }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  td .mono { white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* file tree + code blocks */
+  pre.block {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; overflow-x: auto; font-family: "IBM Plex Mono", monospace;
+    font-size: 0.82rem; line-height: 1.55; margin: 18px 0;
+  }
+  pre.block .c { color: var(--muted); }
+  pre.block .hl { color: var(--accent); }
+
+  /* callouts */
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px;
+    background: var(--surface); padding: 14px 18px; margin: 18px 0; font-size: 0.93rem;
+  }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.danger { border-left-color: var(--danger); }
+  .callout strong { font-weight: 600; }
+  .callout p { margin: 0 0 8px; max-width: none; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* milestones */
+  .milestones { display: grid; gap: 0; margin: 20px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .ms { display: grid; grid-template-columns: 86px 1fr; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .ms:last-child { border-bottom: none; }
+  .ms .id {
+    font-family: "IBM Plex Mono", monospace; font-size: 0.82rem; color: var(--accent);
+    padding: 14px 0 14px 18px; font-weight: 500;
+  }
+  .ms .body { padding: 14px 18px 14px 0; }
+  .ms .body h4 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 600; }
+  .ms .body p { font-size: 0.88rem; color: var(--muted); margin: 0; max-width: none; }
+
+  ul { padding-left: 22px; margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--accent); }
+
+  .mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; margin: 18px 0; }
+
+  footer { padding-top: 36px; color: var(--muted); font-size: 0.85rem; }
+  footer a { font-weight: 500; }
+
+  @media (max-width: 560px) {
+    header { padding-top: 40px; }
+    .ms { grid-template-columns: 62px 1fr; }
+  }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="kana">ねこみたい・NEKOMITAI</div>
+  <h1>Nekomitai Blueprint<span class="paw">.</span></h1>
+  <p class="tagline">A web browser that lives inside After Effects — watch reference videos, browse the web, and pull colors and assets straight into your comp. With an optional adblocker and anti-tracker.</p>
+  <div class="credits">
+    <span>Made by <strong>Akamine Izuna</strong></span>
+    <span><a href="https://x.com/Izuna_text" rel="noopener">X @Izuna_text</a></span>
+    <span><a href="https://buymeacoffee.com/izunatext" rel="noopener">Buy Me a Coffee</a></span>
+    <span><a href="https://github.com/hignode/nekomitai" rel="noopener">github.com/hignode/nekomitai</a></span>
+    <span>Plan v1.2 — August 25, 2026 · M1 shipped, spikes green</span>
+  </div>
+</header>
+
+<section id="verdict">
+  <div class="eyebrow">01 · Verdict</div>
+  <h2>Feasible — with three hard walls we design around</h2>
+  <p class="lede">This plan is grounded in verified research (Adobe CEP 12 docs, CEF maintainer statements, license texts, competitor teardown — all checked August 2026). The product is buildable and the niche is empty: <strong>no shipping tool combines in-AE browsing, video reference, adblock, and asset import.</strong> But three platform walls are physically unbypassable, and the architecture below is shaped by them.</p>
+  <div class="grid cols2">
+    <div class="card">
+      <h4><span class="chip ok">CONFIRMED</span>&nbsp; Platform: CEP 12</h4>
+      <p>After Effects 25.0–26.0 supports CEP 12 panels (embedded Chromium 99 + Node.js 17.7.1). UXP panels do not exist for AE as of 2026, so CEP is the only option — and it's confirmed working. H.264/AAC, VP9, and Media Source Extensions all work, so YouTube's embed player plays video fine.</p>
+    </div>
+    <div class="card">
+      <h4><span class="chip no">WALL 1</span>&nbsp; Sites can refuse to be framed</h4>
+      <p>X-Frame-Options / CSP <span class="mono">frame-ancestors</span> are enforced in CEF's network layer; no CEP flag disables them. youtube.com's watch page refuses framing.</p>
+      <span class="why"><strong>Design answer:</strong> a local Node "Gateway" proxy that strips those headers for general sites, plus official embed players (youtube-nocookie, Vimeo, Twitch) for video — those are built to be framed.</span>
+    </div>
+    <div class="card">
+      <h4><span class="chip no">WALL 2</span>&nbsp; No DRM, no Google login</h4>
+      <p>CEP's Chromium has no Widevine and can't get one → Netflix-type sites will never play. Google login blocks embedded browsers.</p>
+      <span class="why"><strong>Design answer:</strong> scope these out explicitly; a one-click "open in system browser" escape hatch covers them.</span>
+    </div>
+    <div class="card">
+      <h4><span class="chip no">WALL 3</span>&nbsp; No live playback sync, no drag-out</h4>
+      <p><span class="mono">comp.time</span> freezes during RAM preview, and drag-from-panel-to-timeline works in Premiere but not AE.</p>
+      <span class="why"><strong>Design answer:</strong> scrub-sync (playhead lock while scrubbing/paused — same as Frame.io's panel) and one-click import buttons instead of drag.</span>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="eyebrow">02 · Architecture</div>
+  <h2>Three layers, one gateway</h2>
+  <p class="lede">Everything is one CEP extension with three layers. The <strong>Panel UI</strong> (what you see), the <strong>Gateway</strong> (a Node.js server on 127.0.0.1 that does all networking: proxying, adblocking, downloading, embed resolution), and the <strong>Host bridge</strong> (ExtendScript that touches the AE project). Every feature routes through these three — the full connection map is in section 04.</p>
+
+  <pre class="mermaid">
+flowchart LR
+  subgraph PANEL["CEP Panel · Chromium 99"]
+    UI["Panel UI<br/>tabs · omnibox · player · boards"]
+    SURF["View surface iframe<br/>served from localhost"]
+  end
+  subgraph GW["Nekomitai Gateway · Node 17 on 127.0.0.1"]
+    RES["embed resolver"]
+    PROX["rewriting proxy<br/>header strip + URL rewrite"]
+    ADB["adblock + anti-track engine<br/>ghostery/adblocker"]
+    DL["download manager"]
+  end
+  subgraph HOST["ExtendScript host"]
+    JSX["nekomitai.jsx<br/>import · color · time · markers"]
+  end
+  AE["After Effects<br/>project + comp"]
+  WEB(("Internet"))
+  UI --> SURF
+  SURF --> RES
+  SURF --> PROX
+  PROX --> ADB
+  ADB --> WEB
+  RES --> WEB
+  UI --> DL
+  DL --> ADB
+  UI -- "CSInterface.evalScript JSON bridge" --> JSX
+  JSX --> AE
+  </pre>
+
+  <h3>Browsing works in three tiers</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Tier</th><th>What</th><th>How</th><th>Reliability</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Video Mode</strong></td>
+        <td>YouTube, Vimeo, Twitch, Dailymotion, SoundCloud (full tracks) + direct media URLs + local files. Spotify links play via its embed player — <em>previews only</em>: full-track web playback needs Widevine DRM, which CEP lacks (Wall 2); full control comes via Spotify Connect (see Logins card).</td>
+        <td>Any pasted/clicked watch URL is converted (oEmbed lookup from Node) to the provider's official embed player: <span class="mono">youtube-nocookie.com/embed/…</span>, <span class="mono">player.vimeo.com</span>, <span class="mono">player.twitch.tv?parent=localhost</span>. These endpoints are built to be framed.</td>
+        <td><span class="chip ok">RELIABLE</span></td>
+      </tr>
+      <tr>
+        <td><strong>Web Mode</strong></td>
+        <td>Arbitrary websites — docs, articles, portfolios, reference boards, image search</td>
+        <td>Gateway fetches the page server-side, strips <span class="mono">X-Frame-Options</span> / CSP framing headers, rewrites URLs, runs the adblocker, injects cosmetic filters, serves it to the iframe from localhost. A server-side <strong>cookie jar</strong> in the Gateway plays "the browser" for cookies, so logins on normal sites work and persist (big-tech SSO still refuses embedded browsers — see Logins card in §05).</td>
+        <td><span class="chip warn">BEST-EFFORT</span> — heavy app-sites (full YouTube, X, Google login, PWAs) will break; expectations set in UI</td>
+      </tr>
+      <tr>
+        <td><strong>Escape hatch</strong></td>
+        <td>Anything the panel can't render (DRM, logins, broken sites)</td>
+        <td>One-click "Open in system browser", offered automatically when a page fails.</td>
+        <td><span class="chip ok">ALWAYS WORKS</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <p><strong>Why the view surface is served from localhost, not file://.</strong> Twitch embeds hard-require a real hostname in their <span class="mono">&amp;parent=</span> check, cookies behave better with an http origin, and several providers check the embedding hostname. So the page that hosts the content iframe is itself served by the Gateway at <span class="mono">http://127.0.0.1:&lt;port&gt;/view</span>. The Gateway binds loopback only, picks a free port at startup, and requires a per-session token on every request so no other local app (or webpage) can use it.</p>
+  </div>
+
+  <div class="callout warn">
+    <p><strong>Security stance (important for a browser-in-a-panel):</strong> web content is hostile by default. The content iframe is sandboxed, never gets Node access (<span class="mono">--mixed-context</span> is deliberately NOT enabled), and everything privileged (filesystem, downloads, ExtendScript) lives in the outer panel and Gateway only. Proxied pages lose clickjacking protection by design, so the UI always shows the true URL of the page being viewed.</p>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="eyebrow">03 · Stack &amp; repo layout</div>
+  <h2>The roots</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Decision</th><th>Choice</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Scaffold</td><td class="mono">bolt-cep (Vite + TypeScript + React)</td><td>Modern tooling, HMR dev server, built-in ZXP packaging + GitHub Actions signing — the current community standard for CEP.</td></tr>
+      <tr><td>Host support</td><td class="mono">AEFT 25.0 – 99.9 (CSXS 12)</td><td>AE 2025/2026. Premiere Pro port is a natural v2 (same codebase, PPRO even supports drag-import).</td></tr>
+      <tr><td>Gateway server</td><td class="mono">Node 17 built-ins + tiny router</td><td>Runs inside the panel's own Node (cep_node) — no second process, dies with the panel. Pure-JS deps only (Node 17 ABI makes native modules painful).</td></tr>
+      <tr><td>Adblock engine</td><td class="mono">@ghostery/adblocker (MPL-2.0)</td><td>Pure TypeScript (no native ABI problem), actively maintained (v2.18 Aug 2026), handles ~99% of EasyList/uBlock syntax, does both network matching and cosmetic filters. License-safe next to our own code.</td></tr>
+      <tr><td>ExtendScript</td><td class="mono">jsx + json2 polyfill, single bridge</td><td>All AE calls go through one <span class="mono">evalScript</span> bridge passing JSON <span class="mono">{ok, data, error}</span> — contains ES3 fragility in one file, and isolates us if AE ever moves to UXP.</td></tr>
+      <tr><td>OS targets</td><td>Windows first, macOS at beta</td><td>Dev machine is Windows; CEP is cross-platform so the port is mostly signing/testing.</td></tr>
+    </tbody>
+  </table></div>
+
+<pre class="block"><code>NekoMitai/
+├─ CSXS/
+│  └─ manifest.xml            <span class="c">← extension root: ID com.izunatext.nekomitai, AEFT 25.0+,</span>
+│                             <span class="c">  CEFCommandLine: --enable-nodejs, --enable-media-stream,</span>
+│                             <span class="c">  --disable-site-isolation-trials, --disable-features=SameSite…</span>
+├─ .debug                     <span class="c">← DevTools ports for development</span>
+├─ src/
+│  ├─ js/                     <span class="hl">── LAYER 1 · Panel UI (React, runs in CEP Chromium)</span>
+│  │  ├─ main/
+│  │  │  ├─ App.tsx           <span class="c">hash router — UI routes in §04</span>
+│  │  │  ├─ browser/          <span class="c">tabs, omnibox, nav bar, view-surface host</span>
+│  │  │  ├─ player/           <span class="c">reference player + sync controls</span>
+│  │  │  ├─ boards/           <span class="c">bookmarks & reference boards</span>
+│  │  │  ├─ downloads/        <span class="c">download queue + "Send to AE"</span>
+│  │  │  └─ settings/         <span class="c">adblock, privacy, general, about</span>
+│  │  └─ lib/
+│  │     ├─ bridge.ts         <span class="c">typed wrapper over CSInterface.evalScript</span>
+│  │     ├─ gateway.ts        <span class="c">typed client for Gateway HTTP API</span>
+│  │     └─ theme.ts          <span class="c">appSkinInfo → CSS variables</span>
+│  ├─ node/                   <span class="hl">── LAYER 2 · Gateway (Node 17, same process)</span>
+│  │  ├─ server.ts            <span class="c">boot: pick port, mint session token, mount routes</span>
+│  │  ├─ routes/              <span class="c">one file per route group — HTTP routes in §04</span>
+│  │  ├─ proxy/               <span class="c">fetch, header-strip, HTML/CSS URL rewriter</span>
+│  │  ├─ adblock/             <span class="c">engine load/serialize, list updater, cosmetics</span>
+│  │  ├─ embed/               <span class="c">watch-URL → embed-URL resolvers per provider</span>
+│  │  └─ downloads/           <span class="c">queue, disk cache under USER_DATA</span>
+│  ├─ jsx/                    <span class="hl">── LAYER 3 · Host bridge (ExtendScript, ES3)</span>
+│  │  ├─ nekomitai.jsx        <span class="c">NM_* functions — JSX API in §04</span>
+│  │  └─ json2.jsx            <span class="c">JSON polyfill (ExtendScript has none)</span>
+│  └─ shared/
+│     └─ contracts.ts         <span class="c">types shared by UI ↔ Gateway ↔ bridge</span>
+├─ assets/                    <span class="c">icons (from banner_icon.png / NekoMitai.psd)</span>
+├─ scripts/                   <span class="c">ZXP build + ZXPSignCmd signing, CI release</span>
+├─ THIRD-PARTY-NOTICES.md     <span class="c">MPL-2.0 text, EasyList attribution (required)</span>
+└─ cep.config.ts              <span class="c">bolt-cep config (panel size, ID, hosts)</span></code></pre>
+</section>
+
+<section id="routes">
+  <div class="eyebrow">04 · The connection map</div>
+  <h2>Every root, route, and mapping — connected</h2>
+  <p class="lede">Three route tables (UI, Gateway, ExtendScript), then the end-to-end map that ties every feature through all three layers.</p>
+
+  <h3>A — Panel UI routes <span class="chip accent">hash router in App.tsx</span></h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Route</th><th>Screen</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">#/browser</td><td>Main browsing surface: tab strip, omnibox, back/forward/reload, shield (adblock) indicator, view-surface iframe. Default route.</td></tr>
+      <tr><td class="mono">#/player</td><td>Reference player: transport, frame step, A/B loop, speed, sync-to-AE controls, marker list. Opens automatically when a tab resolves to a video.</td></tr>
+      <tr><td class="mono">#/boards</td><td>Bookmarks and reference boards with thumbnails; boards can be linked to the current AE project.</td></tr>
+      <tr><td class="mono">#/downloads</td><td>Download queue with progress; per-item "Import to AE" / "Add to comp" actions.</td></tr>
+      <tr><td class="mono">#/settings</td><td>Tabs: General · Adblock &amp; Privacy (both OFF by default, opt-in) · Sync · Advanced.</td></tr>
+      <tr><td class="mono">#/about</td><td>Version + update check, credits (Akamine Izuna · X · Buy Me a Coffee), open-source licenses.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>B — Gateway HTTP routes <span class="chip accent">127.0.0.1:&lt;port&gt;, token-authenticated</span></h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Route</th><th>Method</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">/view?target=&lt;url&gt;</td><td class="mono">GET</td><td>Serves the view-surface page for a tab. Decides tier: video → embed iframe, general site → proxy iframe, known-broken → escape-hatch card.</td></tr>
+      <tr><td class="mono">/embed/resolve?url=</td><td class="mono">GET</td><td>Watch-URL → embed-URL via per-provider rules + oEmbed/noembed fallback. Returns <span class="mono">{provider, embedUrl, title, thumb, videoId}</span>.</td></tr>
+      <tr><td class="mono">/proxy/&lt;enc-url&gt;</td><td class="mono">GET/POST</td><td>Web Mode. Fetches target, strips <span class="mono">X-Frame-Options</span>/CSP framing, rewrites HTML/CSS URLs back through <span class="mono">/proxy/</span>, applies adblock network filter, injects cosmetic CSS + true-URL banner.</td></tr>
+      <tr><td class="mono">/adblock/status</td><td class="mono">GET</td><td>Enabled flags, list versions, blocked-count for the session (feeds the shield badge).</td></tr>
+      <tr><td class="mono">/adblock/config</td><td class="mono">POST</td><td>Toggle adblock / anti-track; enable or disable individual filter lists.</td></tr>
+      <tr><td class="mono">/adblock/update</td><td class="mono">POST</td><td>Re-fetch EasyList/EasyPrivacy (48h auto-cadence too), rebuild + reserialize engine cache.</td></tr>
+      <tr><td class="mono">/download</td><td class="mono">POST</td><td>Queue a URL → saves into <span class="mono">USER_DATA/Nekomitai/cache/</span>, returns <span class="mono">{id, path}</span>.</td></tr>
+      <tr><td class="mono">/download/:id/events</td><td class="mono">GET</td><td>SSE progress stream for the queue UI.</td></tr>
+      <tr><td class="mono">/auth/:provider</td><td class="mono">GET</td><td>Opens the provider's official OAuth page in the <em>system</em> browser; Gateway listens on <span class="mono">/auth/callback</span> (loopback redirect) and stores the API token. Powers YouTube/Vimeo account features via their official APIs — never an in-panel Google login page.</td></tr>
+      <tr><td class="mono">/cookies</td><td class="mono">POST/DELETE</td><td>Power-user <span class="mono">cookies.txt</span> import into the proxy's jar; "clear all site data". Jar is stored permission-restricted (encrypted where the OS allows).</td></tr>
+      <tr><td class="mono">/session</td><td class="mono">GET/POST</td><td>Persist/restore open tabs, per-tab history, settings (JSON in USER_DATA).</td></tr>
+      <tr><td class="mono">/health</td><td class="mono">GET</td><td>Liveness + version, used by panel boot.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>C — ExtendScript bridge API <span class="chip accent">nekomitai.jsx, all JSON in/out</span></h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Function</th><th>AE API used</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">NM_importFootage(path, addToComp)</td><td class="mono">app.project.importFile · layers.add</td><td>Imports a downloaded file into a "Nekomitai" project bin; optionally adds as a layer to the active comp. Wrapped in an undo group.</td></tr>
+      <tr><td class="mono">NM_addSolid(rgb, name)</td><td class="mono">comp.layers.addSolid</td><td>Creates a comp-sized solid from a picked color (0–1 floats).</td></tr>
+      <tr><td class="mono">NM_applyColor(rgb)</td><td class="mono">property('ADBE Effect Parade')…setValue</td><td>Sets the color of the selected layer's Fill / Color Control effect.</td></tr>
+      <tr><td class="mono">NM_getTime() / NM_setTime(t)</td><td class="mono">comp.time (read/write)</td><td>Scrub sync: panel polls at ~200ms; player seeks to CTI, or CTI jumps to player time.</td></tr>
+      <tr><td class="mono">NM_addMarker(t, comment)</td><td class="mono">comp.markerProperty.setValueAtTime</td><td>Drops a comp marker carrying video URL + timecode + note.</td></tr>
+      <tr><td class="mono">NM_getProjectInfo()</td><td class="mono">app.project.file · activeItem</td><td>Project path (keys per-project boards), comp name/fps/duration for the sync UI.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>D — End-to-end feature map <span class="chip accent">user action → UI → Gateway → JSX → AE</span></h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>User action</th><th>UI route</th><th>Gateway route</th><th>JSX call</th><th>Result in AE</th></tr></thead>
+    <tbody>
+      <tr><td>Paste a YouTube link</td><td class="mono">#/browser → #/player</td><td class="mono">/embed/resolve → /view</td><td>—</td><td>Video plays in panel (embed player, no watch-page ads)</td></tr>
+      <tr><td>Browse a reference site</td><td class="mono">#/browser</td><td class="mono">/view → /proxy (adblock filters requests)</td><td>—</td><td>Page renders in panel, ads/trackers stripped if enabled</td></tr>
+      <tr><td>Right-click image → "Send to AE"</td><td class="mono">#/browser</td><td class="mono">/download → /download/:id/events</td><td class="mono">NM_importFootage</td><td>Image appears in "Nekomitai" bin (+ optionally in comp)</td></tr>
+      <tr><td>Pick a color from the page</td><td class="mono">#/browser</td><td>—</td><td class="mono">NM_addSolid / NM_applyColor</td><td>New solid or recolored Fill effect</td></tr>
+      <tr><td>Scrub the AE timeline</td><td class="mono">#/player</td><td>—</td><td class="mono">NM_getTime (polled)</td><td>Reference video seeks to match CTI (+ offset)</td></tr>
+      <tr><td>Click "Mark this moment"</td><td class="mono">#/player</td><td>—</td><td class="mono">NM_addMarker</td><td>Comp marker with video URL + timecode</td></tr>
+      <tr><td>Toggle adblock</td><td class="mono">#/settings</td><td class="mono">/adblock/config</td><td>—</td><td>— (proxy starts/stops filtering; shield badge updates)</td></tr>
+      <tr><td>Save page to a board</td><td class="mono">#/boards</td><td class="mono">/session</td><td class="mono">NM_getProjectInfo</td><td>Board tied to the open AE project</td></tr>
+      <tr><td>Reopen AE next day</td><td class="mono">#/browser</td><td class="mono">/session</td><td>—</td><td>Tabs and boards restore exactly</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="features">
+  <div class="eyebrow">05 · Features</div>
+  <h2>What no in-AE browser has</h2>
+  <p class="lede">The only comparable shipping product (YouWatch, $0+ on Gumroad) opens a YouTube window and nothing else. Frame.io syncs playback but only for its own hosted media. Every feature below is unserved inside After Effects today.</p>
+  <div class="grid cols2">
+    <div class="card"><h4>🎯 Reference player with timeline scrub-sync</h4><p>Lock the video to your comp's playhead (with offset), frame-step, A/B loop, speed control. What Frame.io does for its own media — for any YouTube/Vimeo/local video. Honest limit: sync is scrub/paused, not during RAM preview (AE physically can't).</p></div>
+    <div class="card"><h4>🛡️ Adblock + anti-tracker (opt-in)</h4><p>@ghostery/adblocker engine over EasyList + EasyPrivacy in the proxy path, cosmetic filtering injected into pages, referrer stripping and third-party-cookie blocking. Off by default, one toggle, live blocked-counter badge.</p></div>
+    <div class="card"><h4>📥 Send to AE</h4><p>Right-click any image/video/GIF on a page → downloads via Node → auto-imports into a "Nekomitai" bin → optional add-to-comp. (Drag-out to the timeline is impossible in AE — Premiere-only API — so this is one click instead.)</p></div>
+    <div class="card"><h4>🎨 Color &amp; palette grab</h4><p>Eyedropper any pixel of a page → new solid or recolor the selected layer's Fill. Extract a 5-swatch palette from any image into solids. (EyeDropper API exists in Chromium 99 — verified in spike M0.)</p></div>
+    <div class="card"><h4>📌 Timestamp markers</h4><p>One click drops a comp marker holding the video URL + timecode + note. Click a marker entry in the panel to jump the video back there. Reference notes that live in the comp itself.</p></div>
+    <div class="card"><h4>🗂️ Per-project reference boards</h4><p>Bookmarks with thumbnails, grouped into boards keyed to the open .aep — open a project, get its references back. Plus full session restore of tabs.</p></div>
+    <div class="card"><h4>🌗 AE-native feel</h4><p>Dockable panel, UI palette derived live from AE's own appearance setting (appSkinInfo + theme-change events), keyboard-friendly omnibox.</p></div>
+    <div class="card"><h4>🔐 Logins that actually work</h4><p>Three mechanisms: a Gateway cookie jar makes normal-site logins work in Web Mode; "Sign in with YouTube / Vimeo" runs official OAuth in your system browser and unlocks your subscriptions, playlists, and search inside the panel (played via embeds — ToS-clean); and Advanced settings takes a cookies.txt import. Spotify gets the same OAuth treatment plus <strong>Spotify Connect</strong>: browse your playlists/library in the panel and remote-control your running Spotify desktop app (play/pause/seek; Premium required) — the ToS-clean answer to CEP having no DRM. Google/Microsoft SSO pages inside the panel stay impossible — they detect embedded browsers by policy.</p></div>
+    <div class="card"><h4>🔄 Update check</h4><p>In-panel check against GitHub Releases; opens the download page when a new version exists (silent self-update isn't possible for ZXPs).</p></div>
+  </div>
+
+  <div class="callout danger">
+    <p><strong>Explicitly out of scope (platform walls, not laziness):</strong> DRM sites (Netflix &amp; co. — no Widevine in CEP, ever), full youtube.com site (embeds instead), Google/Microsoft SSO pages inside the panel (system-browser OAuth covers account features instead), live sync during RAM preview, drag-out to timeline, downloading YouTube videos (ToS violation and a distribution-channel killer — "Send to AE" targets directly-served files, not streamed video).</p>
+  </div>
+</section>
+
+<section id="adblock">
+  <div class="eyebrow">06 · Adblock, privacy &amp; licenses</div>
+  <h2>Legal-clean by construction</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Component</th><th>License</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td>@ghostery/adblocker</td><td class="mono">MPL-2.0 <span class="chip ok">OK</span></td><td>Use unmodified; ship MPL text + source link in THIRD-PARTY-NOTICES and the About screen.</td></tr>
+      <tr><td>EasyList + EasyPrivacy</td><td class="mono">CC BY-SA 3.0 <span class="chip ok">OK</span></td><td>Fetched at runtime (48h cadence, honors the lists' 4-day expiry, bundled fallback snapshot). Attribution: "The EasyList authors (easylist.to)".</td></tr>
+      <tr><td>uBlock Origin code</td><td class="mono">GPL-3.0 <span class="chip no">EXCLUDED</span></td><td>Code cannot be reused (copyleft). Ideas and filter syntax are fine — the Ghostery engine already parses uBlock syntax.</td></tr>
+      <tr><td>Peter Lowe's list</td><td class="mono">non-commercial <span class="chip no">EXCLUDED</span></td><td>Forbids anything money-adjacent — this is why we do NOT use Ghostery's prebuilt engine bundle (it includes this list) and compose our own list set instead.</td></tr>
+      <tr><td>DuckDuckGo / Ghostery tracker DBs</td><td class="mono">CC BY-NC-SA <span class="chip no">EXCLUDED</span></td><td>Non-commercial only. Anti-tracking derives from EasyPrivacy + proxy behaviors (referrer strip, 3P-cookie block, GPC header) instead.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn">
+    <p><strong>Two legal notes to stay aware of:</strong> (1) A July 2025 German court ruling reopened the question of ad-blocker legality in Germany (Axel Springer v. Eyeo, still pending) — one more reason the blocker ships OFF by default, as a user choice. (2) Blocker or not, we never market Nekomitai as a "block YouTube ads" tool — embeds via youtube-nocookie are simply the clean way to watch.</p>
+  </div>
+</section>
+
+<section id="milestones">
+  <div class="eyebrow">07 · Milestones</div>
+  <h2>Build order</h2>
+  <div class="milestones">
+    <div class="ms"><div class="id">M0</div><div class="body"><h4>Spike week — validate the 6 unknowns before committing</h4><p>① Hello-panel loads in AE 25/26 (PlayerDebugMode + .debug). ② youtube-nocookie embed actually plays (codec check). ③ Twitch <span class="mono">parent=localhost</span> works from a Gateway-served page. ④ EyeDropper API works inside CEP's CEF. ⑤ <span class="mono">evalScript importFile</span> round-trip with Windows paths. ⑥ Video-playing panel across monitors (known Adobe crash report). Each spike has a pass/fail note; failures adjust the plan before M1.</p></div></div>
+    <div class="ms"><div class="id">M1</div><div class="body"><h4>Skeleton</h4><p>bolt-cep scaffold, manifest + ID <span class="mono">com.izunatext.nekomitai</span>, Gateway boots (port, token, /health), theme sync, tab strip + omnibox shell, typed bridge with error contract.</p></div></div>
+    <div class="ms"><div class="id">M2</div><div class="body"><h4>Video Mode + reference player</h4><p>/embed/resolve for YouTube · Vimeo · Twitch · Dailymotion · SoundCloud · Spotify (previews) + direct URLs + local files; player UI with frame step, A/B loop, speed; escape hatch to system browser.</p></div></div>
+    <div class="ms"><div class="id">M3</div><div class="body"><h4>AE bridge features</h4><p>Send to AE (download → bin → comp), color picker + palette → solids/Fill, scrub-sync, timestamp markers. This is the "only Nekomitai" milestone.</p></div></div>
+    <div class="ms"><div class="id">M4</div><div class="body"><h4>Web Mode</h4><p>Rewriting proxy (header strip, URL rewrite), server-side cookie jar so normal site logins work, graceful-failure UX with true-URL banner and per-site compatibility notes.</p></div></div>
+    <div class="ms"><div class="id">M5</div><div class="body"><h4>Adblock &amp; privacy</h4><p>Engine + list updater + serialize cache, cosmetic injection, shield UI with blocked-counter, privacy toggles. All opt-in.</p></div></div>
+    <div class="ms"><div class="id">M6</div><div class="body"><h4>Persistence &amp; polish</h4><p>Session restore, boards keyed to .aep, settings in USER_DATA, account sign-in (system-browser OAuth for YouTube/Vimeo/Spotify + subscriptions/playlists browsing + Spotify Connect remote control), cookies.txt import, About + licenses screen, keyboard shortcuts.</p></div></div>
+    <div class="ms"><div class="id">M7</div><div class="body"><h4>Ship</h4><p>ZXP signing (ZXPSignCmd 4.1.3 + timestamp) in CI on git tags → GitHub Releases; install via aescripts ZXP Installer; macOS build + test; aescripts.com submission (Name-Your-Own-Price as the donation model); Adobe Marketplace as best-effort second channel; update-check wired.</p></div></div>
+  </div>
+</section>
+
+<section id="decisions">
+  <div class="eyebrow">08 · Open questions for Izuna</div>
+  <h2>Your call before we start</h2>
+  <div class="grid cols2">
+    <div class="card">
+      <h4><span class="chip warn">NAME</span>&nbsp; "Nekomitai" collides with nekomitai.net</h4>
+      <p>An established anime-download site owns the name's search results and social handles. No registered trademark found, but the piracy adjacency could hurt with Adobe/aescripts reviewers.</p>
+      <span class="why"><strong>Recommendation:</strong> keep the name if you love it (no legal blocker found), but consider a qualifier for stores — e.g. "Nekomitai Browser". Your call.</span>
+    </div>
+    <div class="card">
+      <h4><span class="chip warn">SCOPE</span>&nbsp; Ship order</h4>
+      <p>Plan ships Video Mode + AE features (M2–M3) before general Web Mode (M4), because video reference is the reliable core and Web Mode is best-effort.</p>
+      <span class="why"><strong>Recommendation:</strong> agree to this order — an early usable beta after M3.</span>
+    </div>
+    <div class="card">
+      <h4><span class="chip warn">DIST</span>&nbsp; Donation model</h4>
+      <p>Buy Me a Coffee link lives in #/about and on the website for the free GitHub build; on aescripts the equivalent is Name-Your-Own-Price (their norm — external donate buttons are not).</p>
+      <span class="why"><strong>Recommendation:</strong> free on GitHub + NYOP on aescripts.</span>
+    </div>
+    <div class="card">
+      <h4><span class="chip warn">LANG</span>&nbsp; UI languages</h4>
+      <p>English-only first, or English + Japanese from day one? The string layer will be i18n-ready either way.</p>
+      <span class="why"><strong>Recommendation:</strong> EN first, JA at M6.</span>
+    </div>
+  </div>
+  <div class="callout">
+    <p><strong>Nothing gets built until you say "Agree".</strong> Reply with any changes — scope, names, feature priorities — and the plan gets revised first.</p>
+  </div>
+</section>
+
+<footer>
+  <p>Nekomitai — made by Akamine Izuna · <a href="https://x.com/Izuna_text" rel="noopener">@Izuna_text</a> · Support: <a href="https://buymeacoffee.com/izunatext" rel="noopener">buymeacoffee.com/izunatext</a><br>
+  Plan researched &amp; written August 25, 2026. Sources: Adobe CEP 12 Cookbook &amp; CEP-Resources, CEF maintainer forums, ghostery/adblocker &amp; brave/adblock-rust repos, easylist.to license page, Adobe Developer Distribution docs, aescripts &amp; competitor listings.</p>
+</footer>
+
+</div>

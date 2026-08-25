@@ -1,0 +1,20 @@
+/* Global reset + scrollbars. All component styling lives in main/main.scss. */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  -webkit-appearance: none;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nm-line, #454545);
+  border-radius: 5px;
+
+  &:hover {
+    background: var(--nm-muted, #9ea1ac);
+  }
+}
