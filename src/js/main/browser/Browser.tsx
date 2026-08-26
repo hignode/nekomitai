@@ -610,24 +610,25 @@ export const Browser = ({
                     : "AE is playing — sound muted"
                   : "Waiting for AE playback"}
             </span>
-            <span className="nm-flex-spacer" />
-            <span className="nm-vol-icon" title="Reference volume (all tabs)">
-              {volume === 0 ? <IconVolumeMuted /> : <IconVolume />}
+            <span className="nm-vol-group">
+              <span className="nm-vol-icon" title="Reference volume (all tabs)">
+                {volume === 0 ? <IconVolumeMuted /> : <IconVolume />}
+              </span>
+              <input
+                className="nm-vol"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setVolume(v);
+                  sendAll({ action: "volume", value: v });
+                }}
+                title="Reference volume (all tabs)"
+              />
             </span>
-            <input
-              className="nm-vol"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setVolume(v);
-                sendAll({ action: "volume", value: v });
-              }}
-              title="Reference volume (all tabs)"
-            />
           </div>
         </div>
       )}

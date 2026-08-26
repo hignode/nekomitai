@@ -18,11 +18,40 @@
 }
 
 html,
-body,
-#app {
+body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+}
+
+/* AE lets the user dock/float the panel at any size. Below the app's minimum
+   usable size (see .nm-app) the shell scrolls instead of crushing controls
+   into each other — #app is that scroll container. */
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+/* Stock Chromium scrollbars are bright and chunky; restyle every scroller in
+   the panel (shell, settings, boards, tabstrip) to read as AE chrome. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--nm-line);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  &:hover {
+    background: var(--nm-muted);
+    background-clip: padding-box;
+  }
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {
@@ -42,13 +71,20 @@ button {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Floor of usability: smaller than this and rows would collide no matter
+     how they wrap, so the shell (#app) scrolls instead. */
+  min-width: 200px;
+  min-height: 240px;
 }
 
 /* ── top navigation ─────────────────────────────── */
+/* The panel IS the viewport in CEP, so media queries here respond to the
+   user freely resizing the docked panel — that's the whole responsive story. */
 .nm-topnav {
   display: flex;
   align-items: center;
   gap: 12px;
+  row-gap: 2px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--nm-line);
   flex: 0 0 auto;
@@ -60,6 +96,7 @@ button {
 
   nav {
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
 
     button {
@@ -68,6 +105,7 @@ button {
       border-radius: 4px;
       color: var(--nm-muted);
       padding: 4px 10px;
+      white-space: nowrap;
 
       &:hover {
         background: var(--nm-surface);
@@ -119,11 +157,28 @@ button {
   }
 }
 
+/* Not enough width for logo + all five tabs on one line: keep brand and
+   status on the first row, give the nav its own full row below (its buttons
+   keep wrapping further if the panel gets even narrower). */
+@media (max-width: 620px) {
+  .nm-topnav {
+    flex-wrap: wrap;
+
+    nav {
+      order: 9;
+      flex: 1 1 100%;
+    }
+  }
+}
+
 /* ── settings ───────────────────────────────────── */
 .nm-settings {
   padding: 16px 18px;
   overflow-y: auto;
   user-select: text;
+  /* long unbroken tokens (domains, redirect URIs, cookie strings) must wrap,
+     not push the panel sideways */
+  overflow-wrap: anywhere;
 
   h2 {
     margin: 0 0 14px;
@@ -177,7 +232,8 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-top: 8px;
   }
 
@@ -187,6 +243,7 @@ button {
     border: 1px solid var(--nm-line);
     border-radius: 5px;
     padding: 5px 12px;
+    white-space: nowrap;
     &:hover:not(:disabled) {
       border-color: var(--nm-accent);
     }
@@ -260,13 +317,18 @@ button {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
       background: var(--nm-surface);
       border: 1px solid var(--nm-line);
       border-radius: 5px;
       padding: 5px 10px;
       font-size: 12px;
 
+      span {
+        min-width: 0;
+      }
       button {
+        flex: 0 0 auto;
         padding: 2px 10px;
       }
     }
@@ -324,6 +386,10 @@ button {
   overflow-x: auto;
   flex: 0 0 auto;
 
+  &::-webkit-scrollbar {
+    height: 5px;
+  }
+
   .nm-tab {
     display: flex;
     align-items: center;
@@ -332,7 +398,11 @@ button {
     border-radius: 5px 5px 0 0;
     background: var(--nm-surface);
     color: var(--nm-muted);
+    /* tabs squeeze down to a readable stub first; only then does the strip
+       start scrolling horizontally */
+    min-width: 64px;
     max-width: 160px;
+    overflow: hidden;
     cursor: pointer;
     white-space: nowrap;
 
@@ -347,6 +417,7 @@ button {
     }
 
     .nm-tab-close {
+      flex: 0 0 auto;
       background: none;
       border: 0;
       color: var(--nm-muted);
@@ -375,13 +446,17 @@ button {
 
 .nm-omnibar {
   display: flex;
+  /* the address input keeps at least ~160px; below that the buttons wrap to
+     a second row rather than squeezing the input to nothing */
+  flex-wrap: wrap;
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--nm-line);
   flex: 0 0 auto;
 
   input {
-    flex: 1;
+    flex: 1 1 160px;
+    min-width: 0;
     background: var(--nm-surface);
     border: 1px solid var(--nm-line);
     border-radius: 5px;
@@ -400,12 +475,14 @@ button {
   }
 
   button {
+    flex: 0 0 auto;
     background: var(--nm-accent);
     border: 0;
     border-radius: 5px;
     color: var(--nm-bg);
     font-weight: 600;
     padding: 5px 14px;
+    white-space: nowrap;
   }
 
   .nm-tool {
@@ -449,6 +526,7 @@ button {
   .nm-player-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
   }
 
@@ -592,6 +670,9 @@ button {
   }
 
   .nm-player-status {
+    /* small flex-basis so on a narrow panel this ellipsizes in place instead
+       of wrapping the whole row (wrap layouts never shrink a full-width item) */
+    flex: 1 1 60px;
     color: var(--nm-muted);
     font-size: 11px;
     overflow: hidden;
@@ -599,8 +680,12 @@ button {
     white-space: nowrap;
   }
 
-  .nm-flex-spacer {
-    flex: 1;
+  /* icon + slider move as one unit when the row wraps */
+  .nm-vol-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
   }
 
   .nm-vol-icon {
@@ -610,7 +695,7 @@ button {
   }
 
   .nm-vol {
-    width: 110px;
+    width: clamp(60px, 30vw, 110px);
     accent-color: var(--nm-accent);
   }
 }
@@ -634,11 +719,20 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   height: 100%;
   gap: 8px;
   text-align: center;
   padding: 24px;
+  overflow-y: auto;
+
+  /* auto-margin centering instead of justify-content: center — the latter
+     pushes overflow above the scroll reach when the panel is very short */
+  > :first-child {
+    margin-top: auto;
+  }
+  > :last-child {
+    margin-bottom: auto;
+  }
 
   h2 {
     margin: 0;
@@ -663,6 +757,8 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 12px;
     margin-bottom: 10px;
 
     h2 {
@@ -689,7 +785,8 @@ button {
     li {
       display: flex;
       align-items: baseline;
-      gap: 8px;
+      flex-wrap: wrap;
+      gap: 2px 8px;
       padding: 5px 8px;
       background: var(--nm-surface);
       border-radius: 5px;
@@ -787,11 +884,14 @@ button {
   padding: 16px 18px;
   overflow-y: auto;
   user-select: text;
+  overflow-wrap: anywhere;
 
   .nm-boards-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-bottom: 16px;
 
     h2 {
@@ -805,6 +905,7 @@ button {
       border-radius: 5px;
       padding: 6px 12px;
       font-weight: 600;
+      white-space: nowrap;
     }
   }
 
@@ -820,7 +921,8 @@ button {
   .nm-board-title {
     display: flex;
     align-items: center;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 4px 8px;
     margin-bottom: 8px;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--nm-line);
@@ -844,7 +946,9 @@ button {
 
   .nm-board-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    /* min() lets the column floor give way when the panel itself is narrower
+       than 120px of content — one full-width column instead of overflow */
+    grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr));
     gap: 10px;
   }
 
@@ -905,7 +1009,9 @@ button {
 /* ── about ──────────────────────────────────────── */
 .nm-about {
   padding: 24px;
+  overflow-y: auto;
   user-select: text;
+  overflow-wrap: anywhere;
 
   h2 {
     margin: 0 0 4px;
@@ -940,5 +1046,35 @@ button {
     font-size: 11px;
     max-width: 60ch;
     line-height: 1.6;
+  }
+}
+
+/* ── very narrow panel (a thin docked column) ───── */
+/* Everything still works below 340px — this pass just buys back breathing
+   room so wrapped rows stay two-deep instead of three. */
+@media (max-width: 340px) {
+  .nm-topnav {
+    gap: 8px;
+
+    nav button {
+      padding: 4px 7px;
+    }
+  }
+
+  .nm-settings,
+  .nm-boards {
+    padding: 12px;
+  }
+  .nm-about {
+    padding: 16px;
+  }
+  .nm-diag {
+    padding: 10px;
+  }
+
+  /* the duck switch keeps its icon + ON/OFF chip (and tooltip); only the
+     inline word goes */
+  .nm-player .nm-duck-label {
+    display: none;
   }
 }
