@@ -702,18 +702,27 @@ const trackItem = (t: any, albumImages?: any): SpotifyItem => ({
 });
 
 /** Follow Spotify's `next` links. Capped — a 10k-track playlist is not worth
- * 100 sequential round-trips before the page can render. */
-const paged = async (path: string, cap = 200): Promise<any[]> => {
+ * 100 sequential round-trips before the page can render, but the cap is high
+ * enough that any humanly-curated playlist arrives whole. A failed page keeps
+ * what already arrived and says why, instead of silently rendering nothing. */
+const paged = async (
+  path: string,
+  cap = 1000
+): Promise<{ items: any[]; error: string | null }> => {
   const out: any[] = [];
+  let error: string | null = null;
   let next: string | null = path;
   while (next && out.length < cap) {
     const res: ApiResult = await call("GET", next);
-    if (res.status !== 200 || !res.json) break;
+    if (res.status !== 200 || !res.json) {
+      error = explain(res.status, res.json);
+      break;
+    }
     out.push(...((res.json.items as any[]) || []));
     const n: string | null = res.json.next || null;
     next = n ? n.replace(API, "") : null;
   }
-  return out.slice(0, cap);
+  return { items: out.slice(0, cap), error };
 };
 
 /**
@@ -743,44 +752,88 @@ export const spotifyContext = async (
   try {
     switch (kind) {
       case "library": {
-        const items = await paged("/me/playlists?limit=50");
+        const { items, error } = await paged("/me/playlists?limit=50");
+        const list = items.filter(Boolean);
         return {
           ok: true,
           kind,
           uri: null,
           name: profile?.name ? `${profile.name}'s playlists` : "Your playlists",
-          subtitle: `${items.length} playlist${items.length === 1 ? "" : "s"}`,
+          subtitle: `${list.length} playlist${list.length === 1 ? "" : "s"}`,
           image: "",
           playableContext: false,
-          items: items.filter(Boolean).map((p: any) => ({
-            uri: String(p.uri || ""),
-            href: p.id ? webUrl("playlist", p.id) : "",
-            name: String(p.name || ""),
-            subtitle: `${p.tracks?.total ?? 0} tracks · ${
-              p.owner?.display_name || ""
-            }`.trim(),
-            image: imageOf(p.images),
-            durationMs: 0,
-            kind: "playlist",
-          })),
+          items: list.map((p: any) => {
+            // Spotify has taken to answering `tracks: null` here for
+            // development-mode apps — omit the count rather than print a
+            // lying "0 tracks"; the real number arrives when the playlist
+            // itself opens.
+            const total =
+              typeof p.tracks?.total === "number" ? p.tracks.total : null;
+            const owner = String(p.owner?.display_name || "");
+            return {
+              uri: String(p.uri || ""),
+              href: p.id ? webUrl("playlist", p.id) : "",
+              name: String(p.name || ""),
+              subtitle:
+                [
+                  total !== null
+                    ? `${total} track${total === 1 ? "" : "s"}`
+                    : "",
+                  owner,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Playlist",
+              image: imageOf(p.images),
+              durationMs: 0,
+              kind: "playlist",
+            };
+          }),
+          error: error || undefined,
         };
       }
       case "playlist": {
-        const head = await call("GET", `/playlists/${id}`);
+        // The playlist object itself carries the first 100 items, so the page
+        // renders even when the separate /tracks endpoint misbehaves (which
+        // it does for development-mode apps on some playlists). Only the
+        // remainder needs the paged walk. additional_types keeps podcast
+        // episodes from coming back as null tracks.
+        const head = await call(
+          "GET",
+          `/playlists/${id}${qs({ additional_types: "track,episode" })}`
+        );
         if (head.status !== 200) return fail(explain(head.status, head.json));
-        const rows = await paged(`/playlists/${id}/tracks?limit=100`);
+        const emb = head.json.tracks || {};
+        let rows: any[] = Array.isArray(emb.items) ? emb.items : [];
+        const total: number =
+          typeof emb.total === "number" ? emb.total : rows.length;
+        let pageError: string | null = null;
+        if (emb.next) {
+          const more = await paged(String(emb.next).replace(API, ""));
+          rows = rows.concat(more.items);
+          pageError = more.error;
+        }
+        const items = rows
+          .map((r: any) => r?.track)
+          .filter((t: any) => t && t.uri)
+          .map((t: any) => trackItem(t));
+        if (!items.length && total > 0 && !pageError)
+          pageError =
+            "Spotify returned this playlist without its tracks — try reconnecting Spotify in Settings.";
+        const owner = String(head.json.owner?.display_name || "");
+        const count =
+          items.length && items.length < total
+            ? `first ${items.length} of ${total} tracks`
+            : `${total} track${total === 1 ? "" : "s"}`;
         return {
           ok: true,
           kind,
           uri: String(head.json.uri || ""),
           name: String(head.json.name || "Playlist"),
-          subtitle: `Playlist · ${head.json.owner?.display_name || ""}`.trim(),
+          subtitle: ["Playlist", owner, count].filter(Boolean).join(" · "),
           image: imageOf(head.json.images),
           playableContext: true,
-          items: rows
-            .map((r: any) => r?.track)
-            .filter((t: any) => t && t.uri)
-            .map((t: any) => trackItem(t)),
+          items,
+          error: pageError || undefined,
         };
       }
       case "album": {
@@ -795,7 +848,8 @@ export const spotifyContext = async (
           subtitle: `Album · ${artistsOf(head.json)}`,
           image: imageOf(head.json.images),
           playableContext: true,
-          items: rows.map((t: any) => trackItem(t, head.json.images)),
+          items: rows.items.map((t: any) => trackItem(t, head.json.images)),
+          error: rows.error || undefined,
         };
       }
       case "artist": {
@@ -830,7 +884,8 @@ export const spotifyContext = async (
           subtitle: `Podcast · ${head.json.publisher || ""}`.trim(),
           image: imageOf(head.json.images),
           playableContext: true,
-          items: rows.map((e: any) => ({
+          error: rows.error || undefined,
+          items: rows.items.map((e: any) => ({
             uri: String(e.uri || ""),
             href: e.id ? webUrl("episode", e.id) : "",
             name: String(e.name || ""),

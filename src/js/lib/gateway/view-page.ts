@@ -20,6 +20,11 @@ const ICON_PLAY = svg('<path d="M4.5 2.8v10.4L13 8z"/>');
 const ICON_PAUSE = svg('<path d="M4.6 3h2.5v10H4.6zM8.9 3h2.5v10H8.9z"/>');
 const ICON_PREV = svg('<path d="M4 3h1.7v10H4zM13 3.2v9.6L6.5 8z"/>');
 const ICON_NEXT = svg('<path d="M10.3 3H12v10h-1.7zM3 3.2 9.5 8 3 12.8z"/>');
+const ICON_SHUFFLE = svg(
+  '<path fill="none" stroke="currentColor" stroke-width="1.5" ' +
+    'd="M1 4.5h3l7 7h2.5M1 11.5h3l2.3-2.3M8.7 6.8 11 4.5h2.5"/>' +
+    '<path d="M12.7 2 16 4.5l-3.3 2.5zM12.7 9 16 11.5l-3.3 2.5z"/>'
+);
 
 const SHELL_CSS = `
   html,body{margin:0;height:100%;background:#141416;color:#c8cad2;
@@ -105,6 +110,8 @@ const SHELL_CSS = `
     line-height:1;display:flex;align-items:center;justify-content:center;padding:0 6px}
   .sp-btn:hover{border-color:#8f97f8}
   .sp-btn:disabled{opacity:.45;cursor:default}
+  .sp-btn.on{color:#8f97f8;border-color:#8f97f8}
+  .sp-btn .lbl{margin-left:5px}
   .sp-seek{display:flex;align-items:center;gap:8px;font-size:10px;color:#8b8e99}
   .sp-seek input{flex:1;min-width:40px}
   .sp-foot{display:flex;align-items:center;gap:8px;font-size:11px;color:#8b8e99}
@@ -580,6 +587,8 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
           <h1 id="ctxName">Loading…</h1>
           <div class="sub" id="ctxSub"></div>
         </div>
+        <button class="sp-btn" id="shufPlayBtn" title="Play this shuffled"
+          style="display:none">${ICON_SHUFFLE}<span class="lbl">Shuffle</span></button>
         ${isLibrary ? "" : `<button class="sp-btn" id="libBtn">Playlists</button>`}
         <button class="sp-btn" id="extBtn">Open in Spotify</button>
       </div>
@@ -592,6 +601,7 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
             <div class="a" id="nowArtist"></div>
           </div>
           <div class="sp-btns">
+            <button class="sp-btn" id="shufBtn" title="Shuffle">${ICON_SHUFFLE}</button>
             <button class="sp-btn" id="prevBtn" title="Previous">${ICON_PREV}</button>
             <button class="sp-btn" id="ppBtn" title="Play / pause">${ICON_PLAY}</button>
             <button class="sp-btn" id="nextBtn" title="Next">${ICON_NEXT}</button>
@@ -679,6 +689,19 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
     };
     $("prevBtn").onclick=function(){cmd({action:"previous"});};
     $("nextBtn").onclick=function(){cmd({action:"next"});};
+    $("shufBtn").onclick=function(){cmd({action:"shuffle",on:!(st&&st.shuffle)});};
+    $("shufPlayBtn").onclick=function(){
+      if(!ctx||!ctx.uri)return;
+      autoplayed=true; // this IS the play — don't let autoplay fire an unshuffled one
+      cmd({action:"shuffle",on:true}).then(function(r){
+        var pre=r&&r.ok!==false;
+        cmd({action:"play",contextUri:ctx.uri}).then(function(p){
+          // Spotify may refuse shuffle while idle — set it again now that
+          // playback exists, so the button always means what it says.
+          if(!pre&&p&&p.ok!==false)cmd({action:"shuffle",on:true});
+        });
+      });
+    };
 
     var seek=$("seek");
     seek.addEventListener("mousedown",function(){seeking=true;});
@@ -727,12 +750,15 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
       $("ctxSub").textContent=c.ok?c.subtitle:(c.error||"");
       var art=$("ctxArt");
       if(c.image)art.src=c.image; else art.style.visibility="hidden";
+      $("shufPlayBtn").style.display=(c.ok&&c.playableContext&&c.uri)?"":"none";
       var list=$("list");
       list.innerHTML="";
       if(!c.ok||!c.items.length){
         var p=document.createElement("div");
         p.className="sp-empty";
-        p.textContent=c.ok?"Nothing to show here.":(c.error||"");
+        // A partial failure (some pages fetched, some refused) arrives as
+        // ok:true with an error — say why instead of a blank shrug.
+        p.textContent=c.error||(c.ok?"Nothing to show here.":"");
         list.appendChild(p);
         return;
       }
@@ -763,6 +789,7 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
       na.src=(it&&it.image)||"";
       na.style.visibility=it&&it.image?"visible":"hidden";
       $("ppBtn").innerHTML=st.playing?ICON_PAUSE:ICON_PLAY;
+      $("shufBtn").className="sp-btn"+(st.shuffle?" on":"");
 
       var prog=baseProg+(st.playing?Date.now()-baseAt:0);
       var dur=st.durationMs||0;
