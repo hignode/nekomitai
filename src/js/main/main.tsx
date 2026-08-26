@@ -91,7 +91,10 @@ export const App = () => {
         )
         .catch(() => {});
     poll();
-    const id = setInterval(poll, 2000);
+    // informational badge only — 5s is plenty, and a hidden panel skips it
+    const id = setInterval(() => {
+      if (!document.hidden) poll();
+    }, 5000);
     return () => clearInterval(id);
   }, [gateway]);
 

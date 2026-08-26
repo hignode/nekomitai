@@ -31,7 +31,7 @@ import {
 } from "./cookies";
 import { downloadToCache } from "./downloads";
 import { getState, setConfig, refreshLists, selfTest } from "./adblock";
-import { startAeMeter, getAePeak } from "./ae-meter";
+import { getAePeak } from "./ae-meter";
 import { readJson, writeJson } from "./persist";
 import type { IncomingMessage, ServerResponse } from "http";
 
@@ -46,7 +46,7 @@ export type GatewayInfo = {
 };
 
 const BASE_PORT = 45789;
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 let current: GatewayInfo | null = null;
 
@@ -157,7 +157,8 @@ const listen = (preferred: number, token: string): Promise<number> =>
   });
 
 export const startGateway = async (): Promise<GatewayInfo> => {
-  startAeMeter();
+  // (the WASAPI meter sidecar is no longer started here — it spawns on the
+  // first /aepeak query and stops itself when the polling stops; see ae-meter)
   if (current) return current;
   // Reuse a still-alive gateway from a prior page load (matching token AND
   // version, so an updated build never attaches to old server code).

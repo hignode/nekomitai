@@ -120,9 +120,46 @@ const RUNTIME = (proxyBase: string, origin: string, pageUrl: string) => `
   try{if(parent!==window)parent.postMessage({nm:"nav",url:REAL},"*");}catch(e){}
   var MUSIC=false;
   try{MUSIC=/(open\\.spotify\\.com|(^|\\.)soundcloud\\.com|(^|\\.)bandcamp\\.com|music\\.apple\\.com|(^|\\.)deezer\\.com|(^|\\.)tidal\\.com|music\\.youtube\\.com)/i.test(new URL(REAL).host);}catch(e){}
-  var ducked=false, hit=[], wantVol=-1, duckTimer=null;
+  var ducked=false, hit=[], wantVol=-1, duckTimer=null, volTimer=null;
   function media(){return document.querySelectorAll("video,audio");}
   function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
+
+  // ── audibility report — gates the shell's AE duck watchdog ──
+  // A docs/reference page with nothing playing must cost AE nothing, so tell
+  // the shell whether this page could be making sound. Proxied sub-frames are
+  // same-origin (everything routes through /proxy) and get scanned too; a
+  // frame we can't look into counts as audible (safe: the watchdog just keeps
+  // running, exactly as it did before this report existed).
+  var lastSnd=null;
+  function anySound(win,depth){
+    var els,i;
+    try{
+      els=win.document.querySelectorAll("video,audio");
+      for(i=0;i<els.length;i++){
+        var m=els[i];
+        if(!m.paused&&!m.muted&&m.volume>0)return true;
+      }
+      if(depth<4)for(i=0;i<win.frames.length;i++)
+        if(anySound(win.frames[i],depth+1))return true;
+    }catch(e){return true;}
+    return false;
+  }
+  function sndScan(){
+    if(parent===window)return;
+    var on=ducked||anySound(window,0);
+    if(on===lastSnd)return;
+    lastSnd=on;
+    try{parent.postMessage({nm:"sound",on:on},"*");}catch(e){}
+  }
+  // media events don't bubble but do reach capture listeners on the document
+  document.addEventListener("play",sndScan,true);
+  document.addEventListener("pause",sndScan,true);
+  document.addEventListener("volumechange",sndScan,true);
+  document.addEventListener("ended",sndScan,true);
+  setInterval(sndScan,3000); // sweep covers sub-frames + anything missed
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",sndScan);
+  else sndScan();
   function applyDuck(){
     var els=media();
     for(var i=0;i<els.length;i++){var m=els[i];
@@ -142,14 +179,19 @@ const RUNTIME = (proxyBase: string, origin: string, pageUrl: string) => `
       hit=[];
       tell(null);
     }
+    sndScan();
   }
   function applyVol(){ if(wantVol<0)return; var els=media(); for(var i=0;i<els.length;i++){try{els[i].volume=wantVol;}catch(e){}} }
-  setInterval(applyVol,800);
   window.addEventListener("message",function(e){
     var d=e.data; if(!d||d.nm!=="cmd")return;
     if(d.action==="duck")setDuck(true);
     else if(d.action==="resume")setDuck(false);
-    else if(d.action==="volume"){wantVol=Math.max(0,Math.min(1,+d.value||0));applyVol();}
+    else if(d.action==="volume"){
+      wantVol=Math.max(0,Math.min(1,+d.value||0));applyVol();
+      // keep late-arriving media at the wanted volume — but only spend a
+      // timer once a volume has actually been set
+      if(!volTimer)volTimer=setInterval(applyVol,800);
+    }
     // cascade into nested proxied frames (embedded players duck too)
     for(var i=0;i<window.frames.length;i++){try{window.frames[i].postMessage(d,"*");}catch(err){}}
   });

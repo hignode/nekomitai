@@ -1,6 +1,6 @@
 /**
- * AE audio-activity meter — a persistent PowerShell sidecar sampling the
- * Windows (WASAPI) per-application audio peak meter for the AfterFX process.
+ * AE audio-activity meter — a PowerShell sidecar sampling the Windows
+ * (WASAPI) per-application audio peak meter for the AfterFX process.
  *
  * RAM/spacebar preview is invisible to scripting (comp.time freezes and
  * evalScript still answers), but a preview WITH audio makes AfterFX's audio
@@ -8,13 +8,25 @@
  * own sound can't feed back into it: CEP pages emit audio from
  * CEPHtmlEngine.exe, a different process, and the meter matches AfterFX PIDs
  * only.
+ *
+ * ON DEMAND, not persistent: the sidecar spawns on the first /aepeak query
+ * and is killed after 5 idle minutes — the panel only polls /aepeak while a
+ * tab is audibly playing, so an idle panel keeps zero background processes
+ * sampling COM. The first query after a cold stop reads 0 for the second or
+ * two the sidecar takes to compile its C# shim; the duck watchdog's
+ * heartbeat signal covers that gap.
  */
 import { child_process } from "../cep/node";
 
+let child: ReturnType<typeof child_process.spawn> | null = null;
 let last = { peak: 0, at: 0 };
-let started = false;
 let failures = 0;
 let retryScheduled = false;
+let stopping = false; // deliberate idle shutdown in flight — not a failure
+let lastQuery = 0;
+let idleTimer: ReturnType<typeof setInterval> | null = null;
+
+const IDLE_STOP_MS = 5 * 60_000; // no /aepeak query this long → stop sampling
 
 // Prints "P <peak>" (invariant-culture float) every 80ms; exits when the
 // parent pipe closes so reloads never accumulate orphan sidecars.
@@ -121,12 +133,6 @@ while ($true) {
 }
 `;
 
-export const startAeMeter = (): void => {
-  if (started || process.platform !== "win32") return;
-  started = true;
-  spawnMeter();
-};
-
 const spawnMeter = (): void => {
   try {
     const enc = Buffer.from(PS_SCRIPT, "utf16le").toString("base64");
@@ -135,6 +141,7 @@ const spawnMeter = (): void => {
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],
       { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }
     );
+    child = p;
     let buf = "";
     p.stdout?.on("data", (c) => {
       buf += String(c);
@@ -151,26 +158,57 @@ const spawnMeter = (): void => {
         }
       }
     });
-    p.on("error", retry);
-    p.on("exit", retry);
+    p.on("error", onExit);
+    p.on("exit", onExit);
   } catch {
-    retry();
+    onExit();
   }
 };
 
-const retry = (): void => {
+const onExit = (): void => {
+  child = null;
+  if (stopping) {
+    stopping = false; // we asked it to stop — nothing to retry
+    return;
+  }
   if (retryScheduled) return;
   retryScheduled = true;
   failures++;
   if (failures > 5) return; // give up quietly — /aepeak just reports 0
   setTimeout(() => {
     retryScheduled = false;
-    spawnMeter();
+    // only respawn if something is still asking for peaks
+    if (Date.now() - lastQuery < IDLE_STOP_MS) spawnMeter();
   }, 3000);
 };
 
-/** Latest AfterFX audio peak (0..1); stale samples read as silence. */
+const ensureRunning = (): void => {
+  if (process.platform !== "win32") return;
+  if (!child && !retryScheduled && failures <= 5) spawnMeter();
+  if (!idleTimer) {
+    idleTimer = setInterval(() => {
+      if (Date.now() - lastQuery <= IDLE_STOP_MS) return;
+      if (idleTimer) {
+        clearInterval(idleTimer);
+        idleTimer = null;
+      }
+      if (child) {
+        stopping = true;
+        try {
+          child.kill();
+        } catch {
+          stopping = false;
+        }
+      }
+    }, 60_000);
+  }
+};
+
+/** Latest AfterFX audio peak (0..1); stale samples read as silence.
+ * Querying is what keeps the sidecar alive — see the header comment. */
 export const getAePeak = (): { peak: number; at: number; alive: boolean } => {
+  lastQuery = Date.now();
+  ensureRunning();
   const fresh = Date.now() - last.at < 2000;
   return { peak: fresh ? last.peak : 0, at: last.at, alive: fresh };
 };

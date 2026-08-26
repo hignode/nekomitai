@@ -50,6 +50,10 @@ export const Browser = ({
   const [activeId, setActiveId] = useState(0);
   const [metas, setMetas] = useState<Record<number, Meta>>({});
   const [duckModes, setDuckModes] = useState<Record<number, DuckMode>>({});
+  // per-tab audibility, reported by view pages ({nm:"sound"}). A tab with no
+  // report yet counts as audible (conservative — the duck watchdog must never
+  // sit out a tab that might be making sound).
+  const [sounds, setSounds] = useState<Record<number, boolean>>({});
   const [status, setStatus] = useState("");
   const [followAE, setFollowAE] = useState(true);
   const [aeBusy, setAeBusy] = useState(false);
@@ -156,8 +160,17 @@ export const Browser = ({
           delete n[tabId];
           return n;
         });
+        setSounds((m) => {
+          if (!(tabId in m)) return m;
+          const n = { ...m };
+          delete n[tabId];
+          return n;
+        });
       } else if (d.nm === "duckState") {
         setDuckModes((m) => ({ ...m, [tabId]: (d.mode ?? null) as DuckMode }));
+      } else if (d.nm === "sound") {
+        const on = !!d.on;
+        setSounds((m) => (m[tabId] === on ? m : { ...m, [tabId]: on }));
       }
     };
     window.addEventListener("message", onMsg);
@@ -187,15 +200,20 @@ export const Browser = ({
   //     responsive, covering silent comps. A CTI drag starves BOTH (the ping
   //     comes back late), so the gap only counts when the ping itself was
   //     answered quickly.
-  const anyMedia = tabs.some((t) => t.target);
+  // The whole watchdog (ExtendScript pings, the in-AE heartbeat task, the
+  // /aepeak polling) runs ONLY while some tab is actually audible — an open
+  // but silent tab (paused video, a docs page) must cost AE nothing. Tabs
+  // that never report a sound state count as audible, so ducking can only
+  // ever fail toward "still works, just not cheaper".
+  const anyAudible = tabs.some((t) => t.target && (sounds[t.id] ?? true));
   useEffect(() => {
-    if (!followAE || !anyMedia || !window.cep) return;
-    const POLL_MS = 120; // AE ping cadence
-    const AUDIO_POLL_MS = 70; // /aepeak cadence (sidecar samples every 80ms)
+    if (!followAE || !anyAudible || !window.cep) return;
+    const POLL_MS = 250; // AE ping cadence (each ping runs on AE's UI thread)
+    const AUDIO_POLL_MS = 150; // /aepeak cadence (sidecar samples every 80ms)
     const IDLE_MS = 500; // keep ducked this long after the last playback sign
-    const AUDIO_HOLD_MS = 300; // bridge brief quiet gaps in previewed audio
+    const AUDIO_HOLD_MS = 400; // bridge brief quiet gaps in previewed audio
     const AUDIO_PEAK_MIN = 0.01; // WASAPI peak (0..1) that counts as sound
-    const HB_STALE_MS = 800; // heartbeat starved this long = preview running
+    const HB_STALE_MS = 1000; // heartbeat starved this long = preview running
     const HB_RTT_MAX = 250; // trust the gap only if the ping answered this fast
     const HB_DEAD_MS = 30000; // starved THIS long = heartbeat lost, re-arm
     const REDUCK_MS = 1000; // re-broadcast duck while busy (idempotent) so
@@ -213,7 +231,7 @@ export const Browser = ({
     const armHeartbeat = () =>
       evalES(
         "(function(){try{if($.global.__nmHbId)app.cancelTask($.global.__nmHbId);}catch(e){}" +
-          '$.global.__nmHb=new Date().getTime();$.global.__nmHbId=app.scheduleTask("$.global.__nmHb=new Date().getTime();",200,true);return "ok";})()',
+          '$.global.__nmHb=new Date().getTime();$.global.__nmHbId=app.scheduleTask("$.global.__nmHb=new Date().getTime();",300,true);return "ok";})()',
         true
       ).catch(() => {});
     armHeartbeat();
@@ -327,13 +345,18 @@ export const Browser = ({
       autoDucked.current = false;
       setAeBusy(false);
     };
-  }, [followAE, gateway, anyMedia]);
+  }, [followAE, gateway, anyAudible]);
 
   const go = () => {
     const value = inputRef.current?.value.trim();
     if (!value) return;
     update(active.id, { input: value, target: value, current: value });
     setMetas((m) => {
+      const n = { ...m };
+      delete n[active.id];
+      return n;
+    });
+    setSounds((m) => {
       const n = { ...m };
       delete n[active.id];
       return n;
@@ -359,6 +382,11 @@ export const Browser = ({
       return n;
     });
     setDuckModes((m) => {
+      const n = { ...m };
+      delete n[id];
+      return n;
+    });
+    setSounds((m) => {
       const n = { ...m };
       delete n[id];
       return n;

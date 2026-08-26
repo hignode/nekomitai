@@ -185,6 +185,15 @@ export const renderViewPage = (
       // end-screen "more videos" tiles play in-place — follow the video id so
       // the tab's link jumps with them
       var curId=${JSON.stringify(resolution.videoId)};
+      var lastSnd=null,lastPlaying=false;
+      // Audibility up to the shell — it gates the whole AE duck watchdog, so a
+      // paused tab costs AE nothing. While WE duck (wantAutoMute) it must stay
+      // "audible" or the watchdog would stop before it can send the resume.
+      function snd(on){
+        if(on===lastSnd)return;
+        lastSnd=on;
+        try{parent.postMessage({nm:"sound",on:on},"*");}catch(e){}
+      }
       function report(){
         if(player&&player.getCurrentTime){
           try{
@@ -197,13 +206,17 @@ export const renderViewPage = (
               parent.postMessage({nm:"nav",url:"https://www.youtube.com/watch?v="+curId},"*");
               parent.postMessage({nm:"meta",provider:"youtube",controllable:true,videoId:curId},"*");
             }
+            lastPlaying=!!(player.getPlayerState&&player.getPlayerState()===1);
+            snd(wantAutoMute?true:(lastPlaying&&!player.isMuted()));
             parent.postMessage({nm:"time",current:player.getCurrentTime(),
               duration:player.getDuration(),
-              playing:player.getPlayerState&&player.getPlayerState()===1},"*");
+              playing:lastPlaying},"*");
           }catch(e){}
         }
       }
-      setInterval(report,250);
+      // 250ms keeps the scrubber live while playing; a paused tab only needs
+      // an occasional check, so it drops to 1s and stops waking the renderer.
+      (function tick(){report();setTimeout(tick,lastPlaying?250:1000);})();
     `
     );
   }
@@ -259,6 +272,18 @@ export const renderViewPage = (
       var playing=true; // embeds autoplay; refined by widget events where available
       function toPlayer(msg){try{f.contentWindow.postMessage(msg,"*");}catch(e){}}
       function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
+      // Audibility up to the shell (gates the AE duck watchdog). Providers with
+      // no play/pause events (Vimeo, Dailymotion) just stay "audible" — the
+      // watchdog then behaves exactly as before, never worse. Ducked counts as
+      // audible so the watchdog stays alive to send the resume.
+      var lastSnd=null;
+      function snd(){
+        var on=ducked||playing;
+        if(on===lastSnd)return;
+        lastSnd=on;
+        try{parent.postMessage({nm:"sound",on:on},"*");}catch(e){}
+      }
+      snd();
       var setBtn=document.getElementById("setBtn");
       if(setBtn)setBtn.onclick=function(){
         parent.postMessage({nm:"route",to:"settings"},"*");
@@ -276,6 +301,7 @@ export const renderViewPage = (
           if(d.method==="play"||d.method==="playProgress")playing=true;
           else if(d.method==="pause")playing=false;
           else if(d.method==="finish"){playing=false;showRelated();}
+          snd();
         });
         f.addEventListener("load",function(){
           setTimeout(function(){
@@ -296,6 +322,7 @@ export const renderViewPage = (
           if(typeof d==="string"){try{d=JSON.parse(d);}catch(err){return;}}
           if(!d||d.type!=="playback_update"||!d.payload)return;
           playing=!d.payload.isPaused;
+          snd();
         });
         // Every other tier autoplays; the embed waits to be told to.
         f.addEventListener("load",function(){
@@ -318,6 +345,7 @@ export const renderViewPage = (
           toPlayer({command:on?"mute":"unmute",parameters:[]});
           tell(on?"muted":null);
         }
+        snd();
       }
       window.addEventListener("message",function(e){
         var d=e.data; if(!d||d.nm!=="cmd")return;
@@ -460,7 +488,7 @@ export const renderViewPage = (
         )}" style="max-width:100%;max-height:100%;object-fit:contain"/></div>`,
         `${nav}parent.postMessage({nm:"meta",provider:"image",controllable:false,mediaUrl:${JSON.stringify(
           resolution.url
-        )}},"*");`
+        )}},"*");parent.postMessage({nm:"sound",on:false},"*");`
       );
     }
     const tag = isVideo
@@ -481,6 +509,15 @@ export const renderViewPage = (
       var MUSIC=${isAudio ? "true" : "false"}; // audio file = music → duck pauses
       var ducked=false;
       function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
+      // Audibility up to the shell (gates the AE duck watchdog); ducked counts
+      // as audible so the watchdog stays alive to send the resume.
+      var lastSnd=null;
+      function snd(){
+        var on=ducked||(!v.paused&&!v.muted&&v.volume>0);
+        if(on===lastSnd)return;
+        lastSnd=on;
+        try{parent.postMessage({nm:"sound",on:on},"*");}catch(e){}
+      }
       window.addEventListener("message",function(e){
         var d=e.data; if(!d||d.nm!=="cmd")return;
         if(d.action==="duck"||d.action==="mute"){
@@ -503,11 +540,13 @@ export const renderViewPage = (
         else if(d.action==="seek")v.currentTime=d.value;
         else if(d.action==="rate")v.playbackRate=d.value;
       });
-      function rep(){parent.postMessage({nm:"time",current:v.currentTime||0,
+      function rep(){snd();parent.postMessage({nm:"time",current:v.currentTime||0,
         duration:v.duration||0,playing:!v.paused},"*");}
       v.addEventListener("timeupdate",rep);
       v.addEventListener("loadedmetadata",rep);
       v.addEventListener("play",rep); v.addEventListener("pause",rep);
+      v.addEventListener("volumechange",snd); v.addEventListener("ended",snd);
+      snd();
     `
     );
   }
@@ -516,7 +555,7 @@ export const renderViewPage = (
   // this is only a safety net.
   return page(
     `<div class="card"><h1>Opening…</h1><div class="url">${esc(target)}</div></div>`,
-    nav
+    `${nav}parent.postMessage({nm:"sound",on:false},"*");`
   );
 };
 
@@ -591,6 +630,15 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
 
     var $=function(id){return document.getElementById(id);};
     function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
+    // Audibility up to the shell (gates the AE duck watchdog); ducked counts
+    // as audible so the watchdog stays alive to send the resume.
+    var lastSnd=null;
+    function snd(){
+      var on=ducked||!!(st&&st.playing);
+      if(on===lastSnd)return;
+      lastSnd=on;
+      try{parent.postMessage({nm:"sound",on:on},"*");}catch(e){}
+    }
     function fmt(msv){
       var s=Math.max(0,Math.round((msv||0)/1000));
       var m=Math.floor(s/60);
@@ -707,6 +755,7 @@ const spotifyPage = (target: string, resolution: EmbedTier): string => {
     // ── playback state ────────────────────────────────────────────────
     function paint(){
       if(!st)return;
+      snd();
       var it=st.item;
       $("nowTitle").textContent=it?it.name:(st.active?"…":"Nothing playing");
       $("nowArtist").textContent=it?it.artist:"";
