@@ -15,11 +15,19 @@
  * sampling COM. The first query after a cold stop reads 0 for the second or
  * two the sidecar takes to compile its C# shim; the duck watchdog's
  * heartbeat signal covers that gap.
+ *
+ * The sidecar also reports whether a MODAL DIALOG is up in AfterFX (any
+ * visible top-level AfterFX window that Windows has disabled — a modal always
+ * disables its owner). While a modal is up, EVERY evalScript is refused with
+ * an "Unable to execute script…" alert AE shows to the user, so the duck
+ * watchdog uses this flag to hold all ExtendScript traffic until the dialog
+ * closes. `modal: null` means "no fresh sample" (cold start, non-Windows) —
+ * callers must treat that as unknown, not as "no modal".
  */
 import { child_process } from "../cep/node";
 
 let child: ReturnType<typeof child_process.spawn> | null = null;
-let last = { peak: 0, at: 0 };
+let last = { peak: 0, modal: false, at: 0 };
 let failures = 0;
 let retryScheduled = false;
 let stopping = false; // deliberate idle shutdown in flight — not a failure
@@ -28,8 +36,8 @@ let idleTimer: ReturnType<typeof setInterval> | null = null;
 
 const IDLE_STOP_MS = 5 * 60_000; // no /aepeak query this long → stop sampling
 
-// Prints "P <peak>" (invariant-culture float) every 80ms; exits when the
-// parent pipe closes so reloads never accumulate orphan sidecars.
+// Prints "P <peak> <modal01>" (invariant-culture float) every 80ms; exits
+// when the parent pipe closes so reloads never accumulate orphan sidecars.
 const PS_SCRIPT = `
 Add-Type -TypeDefinition @"
 using System;
@@ -81,6 +89,28 @@ namespace NMAudio {
   public interface IAudioMeterInformation {
     int GetPeakValue(out float peak);
   }
+  public static class Modal {
+    delegate bool EnumProc(IntPtr hwnd, IntPtr lparam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr lparam);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr hwnd);
+    static uint[] pidsNow; static bool found;
+    // A modal dialog always disables its owner, so "any visible top-level
+    // AfterFX window that is disabled" == "a modal dialog is waiting".
+    public static bool UpForPids(uint[] pids) {
+      pidsNow = pids; found = false;
+      EnumWindows(Check, IntPtr.Zero);
+      return found;
+    }
+    static bool Check(IntPtr hwnd, IntPtr l) {
+      uint pid; GetWindowThreadProcessId(hwnd, out pid);
+      bool match = false;
+      for (int j = 0; j < pidsNow.Length; j++) if (pidsNow[j] == pid) match = true;
+      if (match && IsWindowVisible(hwnd) && !IsWindowEnabled(hwnd)) { found = true; return false; }
+      return true;
+    }
+  }
   public static class Meter {
     public static float PeakForPids(uint[] pids) {
       float max = 0f;
@@ -125,10 +155,12 @@ while ($true) {
   }
   $i++
   $peak = 0.0
+  $modal = 0
   if ($pids.Count -gt 0) {
     try { $peak = [NMAudio.Meter]::PeakForPids([uint32[]]$pids) } catch { $peak = 0.0 }
+    try { if ([NMAudio.Modal]::UpForPids([uint32[]]$pids)) { $modal = 1 } } catch { $modal = 0 }
   }
-  try { [Console]::Out.WriteLine("P " + $peak.ToString("0.0000", $inv)) } catch { exit }
+  try { [Console]::Out.WriteLine("P " + $peak.ToString("0.0000", $inv) + " " + $modal) } catch { exit }
   Start-Sleep -Milliseconds 80
 }
 `;
@@ -150,9 +182,10 @@ const spawnMeter = (): void => {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (line.startsWith("P ")) {
-          const v = parseFloat(line.slice(2));
+          const parts = line.slice(2).split(" ");
+          const v = parseFloat(parts[0]);
           if (isFinite(v)) {
-            last = { peak: v, at: Date.now() };
+            last = { peak: v, modal: parts[1] === "1", at: Date.now() };
             failures = 0;
           }
         }
@@ -204,11 +237,22 @@ const ensureRunning = (): void => {
   }
 };
 
-/** Latest AfterFX audio peak (0..1); stale samples read as silence.
- * Querying is what keeps the sidecar alive — see the header comment. */
-export const getAePeak = (): { peak: number; at: number; alive: boolean } => {
+/** Latest AfterFX audio peak (0..1) and modal-dialog flag; stale samples read
+ * as silence / modal-unknown. Querying is what keeps the sidecar alive — see
+ * the header comment. */
+export const getAePeak = (): {
+  peak: number;
+  at: number;
+  alive: boolean;
+  modal: boolean | null;
+} => {
   lastQuery = Date.now();
   ensureRunning();
   const fresh = Date.now() - last.at < 2000;
-  return { peak: fresh ? last.peak : 0, at: last.at, alive: fresh };
+  return {
+    peak: fresh ? last.peak : 0,
+    at: last.at,
+    alive: fresh,
+    modal: fresh ? last.modal : null,
+  };
 };

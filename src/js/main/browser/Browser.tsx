@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GatewayInfo } from "../../lib/gateway/server";
 import { aeAddSolid, aeImportFootage, aeProjectInfo } from "../../lib/ae";
-import { evalES } from "../../lib/utils/bolt";
+import { csi, evalES } from "../../lib/utils/bolt";
 import {
   loadBoards,
   saveBoards,
@@ -197,56 +197,111 @@ export const Browser = ({
   // NOT. Two signals, either of which marks playback:
   //  1. AfterFX's Windows audio session emitting sound (preview with audio,
   //     audio-scrub too), sampled by the gateway's WASAPI meter (/aepeak);
-  //  2. an ExtendScript scheduleTask heartbeat starving while evalScript still
-  //     answers fast — preview stops servicing idle tasks but keeps scripting
-  //     responsive, covering silent comps. A CTI drag starves BOTH (the ping
-  //     comes back late), so the gap only counts when the ping itself was
-  //     answered quickly.
-  // The whole watchdog (ExtendScript pings, the in-AE heartbeat task, the
-  // /aepeak polling) runs ONLY while some tab is actually audible — an open
-  // but silent tab (paused video, a docs page) must cost AE nothing. Tabs
-  // that never report a sound state count as audible, so ducking can only
-  // ever fail toward "still works, just not cheaper".
+  //  2. an in-AE scheduleTask heartbeat that PUSHES a CSXS event to the panel
+  //     every 300ms. Preview starves idle tasks, so the events going quiet
+  //     marks a possible preview — then ONE evalScript ping's RTT separates
+  //     preview (engine answers fast while tasks stall, covering silent
+  //     comps) from a CTI drag / heavy UI (the ping comes back late).
+  // ExtendScript is called ONLY when the events starve — never on a timer —
+  // because while a modal dialog is up in AE every evalScript is refused WITH
+  // a modal error alert shoved at the user. The sidecar's /aepeak response
+  // carries a "modal dialog up" flag that vetoes all ExtendScript here, and a
+  // refusal that slips through anyway backs off exponentially.
+  // The whole watchdog (the in-AE heartbeat task, the /aepeak polling, any
+  // pings) runs ONLY while some tab is actually audible — an open but silent
+  // tab (paused video, a docs page) must cost AE nothing. Tabs that never
+  // report a sound state count as audible, so ducking can only ever fail
+  // toward "still works, just not cheaper".
   const anyAudible = tabs.some((t) => t.target && (sounds[t.id] ?? true));
   useEffect(() => {
     if (!followAE || !anyAudible || !window.cep) return;
-    const POLL_MS = 250; // AE ping cadence (each ping runs on AE's UI thread)
+    const POLL_MS = 250; // watchdog tick (re-duck, arming, starvation checks)
     const AUDIO_POLL_MS = 150; // /aepeak cadence (sidecar samples every 80ms)
     const IDLE_MS = 500; // keep ducked this long after the last playback sign
     const AUDIO_HOLD_MS = 400; // bridge brief quiet gaps in previewed audio
     const AUDIO_PEAK_MIN = 0.01; // WASAPI peak (0..1) that counts as sound
-    const HB_STALE_MS = 1000; // heartbeat starved this long = preview running
-    const HB_RTT_MAX = 250; // trust the gap only if the ping answered this fast
+    const HB_STALE_MS = 1000; // events starved this long = maybe previewing
+    const HB_RTT_MAX = 250; // trust starvation only if the ping answered fast
     const HB_DEAD_MS = 30000; // starved THIS long = heartbeat lost, re-arm
     const REDUCK_MS = 1000; // re-broadcast duck while busy (idempotent) so
     // frames that (re)load mid-preview still duck
+    const MODAL_FRESH_MS = 1000; // trust a sidecar modal sample this recent
+    const BACKOFF_MIN = 5000; // after a refused evalScript wait at least this,
+    const BACKOFF_MAX = 60000; // doubling per refusal up to this
+    const FALLBACK_AFTER_MS = 5000; // armed but no event ever this long → the
+    // event channel is broken, fall back to legacy ping polling
     let pending = false;
     let pendingSince = 0;
     let sustainedUntil = 0; // busy until this time
     let busy = false;
-    let hbSeen = false; // heartbeat observed alive since (re)arming
+    let hbSeen = false; // (fallback path) heartbeat observed alive via gap
     let disposed = false;
     let lastDuckSent = 0;
-    let backoffUntil = 0; // engine refused a ping (modal dialog up / teardown)
+    let backoff = BACKOFF_MIN;
+    let backoffUntil = 0; // engine refused a call (modal dialog up / teardown)
     let audioTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastHb = 0; // last nm.hb CSXS event from the in-AE heartbeat task
+    let hbEverSeen = false; // the event channel is proven to work
+    let modal = false; // sidecar: a modal dialog is up in AfterFX
+    let modalAt = 0; // when that sample landed (0 = no sidecar / not yet)
+    let armedAt = 0;
+    let lastArmTry = 0;
+    const mountAt = Date.now();
 
-    const armHeartbeat = () =>
+    // While a modal dialog is up in AE, EVERY evalScript is refused and AE
+    // alerts "Unable to execute script… Cannot run a script while a modal
+    // dialog is waiting for response" AT the user. Nothing below may call
+    // evalES while this is true (or while a refusal has us backing off).
+    const modalUp = () => modal && Date.now() - modalAt < MODAL_FRESH_MS;
+
+    // The in-AE heartbeat pushes to the panel — steady state costs zero
+    // evalScript calls; the panel only ever pings when the events starve.
+    const onHb = () => {
+      lastHb = Date.now();
+      hbEverSeen = true;
+    };
+    csi.addEventListener("nm.hb", onHb);
+
+    const armHeartbeat = () => {
+      if (modalUp() || Date.now() < backoffUntil) return; // the loop retries
+      lastArmTry = Date.now();
       evalES(
         "(function(){try{if($.global.__nmHbId)app.cancelTask($.global.__nmHbId);}catch(e){}" +
-          '$.global.__nmHb=new Date().getTime();$.global.__nmHbId=app.scheduleTask("$.global.__nmHb=new Date().getTime();",300,true);return "ok";})()',
+          'try{if(!$.global.__nmXt)$.global.__nmXt=new ExternalObject("lib:PlugPlugExternalObject");}catch(e){}' +
+          "$.global.__nmHb=new Date().getTime();$.global.__nmHbId=app.scheduleTask(" +
+          "\"$.global.__nmHb=new Date().getTime();try{var e=new CSXSEvent();e.type='nm.hb';e.data='hb';e.dispatch();}catch(x){}\"" +
+          ',300,true);return "ok";})()',
         true
-      ).catch(() => {});
-    armHeartbeat();
+      )
+        .then((res) => {
+          if (String(res) === "ok") armedAt = Date.now();
+          else {
+            // refused (a modal raced us) — treat like a refused ping
+            backoffUntil = Date.now() + backoff;
+            backoff = Math.min(backoff * 2, BACKOFF_MAX);
+          }
+        })
+        .catch(() => {});
+    };
+    // Deliberately NOT armed here: a modal could be up right now and we can't
+    // know until the sidecar's first sample lands. The interval below arms as
+    // soon as a fresh sample says it's safe (or after a short grace when
+    // there is no sidecar to ask, e.g. macOS).
 
     // The repeating scheduleTask lives inside AE, not the panel — if the page
     // is torn down without cleanup (panel closed, AE quitting) it keeps firing
-    // and errors against AE's quit-time modal. Cancel it on pagehide too,
-    // since React cleanup never runs on page teardown.
-    const cancelHeartbeat = () =>
+    // until AE dies. Cancel it on pagehide too, since React cleanup never
+    // runs on page teardown — but NOT while a modal is up (AE's quit-time
+    // "Save changes?" included): the cancel itself would be refused with an
+    // alert, and the orphaned task is harmless — its body is try/caught, it
+    // starves while any modal is up, and re-arming replaces it by id.
+    const cancelHeartbeat = () => {
+      if (modalUp() || Date.now() < backoffUntil) return;
       evalES(
         '(function(){try{if($.global.__nmHbId){app.cancelTask($.global.__nmHbId);$.global.__nmHbId=0;}}catch(e){}return "ok";})()',
         true
       ).catch(() => {});
+    };
     window.addEventListener("pagehide", cancelHeartbeat);
 
     const setBusy = (b: boolean) => {
@@ -274,11 +329,17 @@ export const Browser = ({
 
     // signal 2: AE itself is emitting audio (preview/scrub with sound).
     // Dedicated fast loop — each response acts immediately, then re-arms.
+    // The same response carries the sidecar's "modal dialog up" flag that
+    // gates every evalScript in this watchdog.
     const pollAudio = () => {
       if (disposed || !gateway) return;
       fetch(`${gateway.origin}/aepeak?t=${gateway.token}`)
         .then((r) => r.json())
         .then((r) => {
+          if (r?.ok && typeof r.modal === "boolean") {
+            modal = r.modal;
+            modalAt = Date.now();
+          }
           if (r?.ok && r.peak > AUDIO_PEAK_MIN) bump(AUDIO_HOLD_MS);
           else evaluate(); // prompt resume once the hold expires
           audioTimer = setTimeout(pollAudio, AUDIO_POLL_MS);
@@ -299,7 +360,28 @@ export const Browser = ({
         lastDuckSent = now;
       }
 
-      if (!pending && now >= backoffUntil) {
+      // arm (or re-try arming) the heartbeat once we know no modal dialog is
+      // in the way; with no sidecar to ask, a short grace stands in
+      if (
+        !armedAt &&
+        now - lastArmTry > 2000 &&
+        !modalUp() &&
+        (modalAt > 0 || now - mountAt > 1500)
+      ) {
+        armHeartbeat();
+      }
+
+      // signal 1: heartbeat starvation. Events flowing = engine idle-healthy
+      // — nothing to do and nothing to ask AE. Only when they starve do we
+      // ping: ONE evalScript whose RTT separates preview (fast — the engine
+      // answers while idle tasks stall) from a CTI drag / heavy UI (slow) —
+      // dragging must never duck. A modal dialog also starves the events, but
+      // the sidecar flag vetoes the ping so AE is never asked then.
+      const wantPing = hbEverSeen
+        ? now - lastHb > HB_STALE_MS
+        : armedAt > 0 && now - armedAt > FALLBACK_AFTER_MS; // event channel
+      // broken → legacy 250ms ping polling (still modal-vetoed)
+      if (wantPing && !pending && now >= backoffUntil && !modalUp()) {
         pending = true;
         pendingSince = now;
         evalES(
@@ -310,26 +392,26 @@ export const Browser = ({
             pending = false;
             const rtt = Date.now() - pendingSince;
             const gap = Number(String(res));
-            // Non-numeric result = the script engine refused or failed the
-            // call ("EvalScript error." while a modal dialog is up, quit
-            // teardown). Keep pinging then and AE alerts "Cannot run a script
-            // while a modal dialog is waiting for response" every 120ms —
-            // back off instead.
+            // Non-numeric result = the engine refused the call (a modal the
+            // sidecar sample missed, quit teardown). Every further call would
+            // alert at the user — back off, doubling each refusal, until the
+            // events or the modal flag say the coast is clear.
             if (!isFinite(gap)) {
-              backoffUntil = Date.now() + 5000;
+              backoffUntil = Date.now() + backoff;
+              backoff = Math.min(backoff * 2, BACKOFF_MAX);
               return;
             }
-            // heartbeat signal: idle tasks stall during preview playback while
-            // this ping keeps answering FAST. A slow ping means the whole
-            // script engine was blocked (CTI drag, dialog, heavy UI) — the gap
-            // is stale there, so ignore it: dragging must never duck.
+            backoff = BACKOFF_MIN;
             if (gap >= 0 && gap < HB_STALE_MS) hbSeen = true;
             if (gap > HB_DEAD_MS) {
               hbSeen = false;
-              armHeartbeat();
-            } else if (hbSeen && gap > HB_STALE_MS && rtt < HB_RTT_MAX) {
-              bump(IDLE_MS);
+              if (Date.now() - lastArmTry > 5000) armHeartbeat();
+              return;
             }
+            const starved = hbEverSeen
+              ? gap > HB_STALE_MS && Date.now() - lastHb > HB_STALE_MS
+              : hbSeen && gap > HB_STALE_MS;
+            if (starved && rtt < HB_RTT_MAX) bump(IDLE_MS);
           })
           .catch(() => {
             pending = false;
@@ -341,6 +423,7 @@ export const Browser = ({
       disposed = true;
       clearInterval(id);
       if (audioTimer) clearTimeout(audioTimer);
+      csi.removeEventListener("nm.hb", onHb);
       window.removeEventListener("pagehide", cancelHeartbeat);
       cancelHeartbeat();
       if (autoDucked.current) sendAllRef.current({ action: "resume" });
