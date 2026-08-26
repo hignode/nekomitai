@@ -763,12 +763,15 @@ export const spotifyContext = async (
           image: "",
           playableContext: false,
           items: list.map((p: any) => {
-            // Spotify has taken to answering `tracks: null` here for
-            // development-mode apps — omit the count rather than print a
-            // lying "0 tracks"; the real number arrives when the playlist
-            // itself opens.
+            // Newer apps get the renamed shape (`items`, not `tracks`) —
+            // read both; omit the count rather than print a lying "0 tracks"
+            // when neither generation carries one.
             const total =
-              typeof p.tracks?.total === "number" ? p.tracks.total : null;
+              typeof p.tracks?.total === "number"
+                ? p.tracks.total
+                : typeof p.items?.total === "number"
+                  ? p.items.total
+                  : null;
             const owner = String(p.owner?.display_name || "");
             return {
               uri: String(p.uri || ""),
@@ -793,16 +796,18 @@ export const spotifyContext = async (
       }
       case "playlist": {
         // The playlist object itself carries the first 100 items, so the page
-        // renders even when the separate /tracks endpoint misbehaves (which
-        // it does for development-mode apps on some playlists). Only the
-        // remainder needs the paged walk. additional_types keeps podcast
-        // episodes from coming back as null tracks.
+        // renders without a second request. Verified live 2026-08: Spotify
+        // serves NEWER apps a renamed shape — the paging object is `items`
+        // (not `tracks`), each row's track sits under `item` (not `track`),
+        // and /playlists/{id}/tracks answers a hard 403 while
+        // /playlists/{id}/items works. Accept both generations everywhere.
+        // additional_types keeps podcast episodes from coming back null.
         const head = await call(
           "GET",
           `/playlists/${id}${qs({ additional_types: "track,episode" })}`
         );
         if (head.status !== 200) return fail(explain(head.status, head.json));
-        const emb = head.json.tracks || {};
+        const emb = head.json.tracks || head.json.items || {};
         let rows: any[] = Array.isArray(emb.items) ? emb.items : [];
         const total: number =
           typeof emb.total === "number" ? emb.total : rows.length;
@@ -811,9 +816,20 @@ export const spotifyContext = async (
           const more = await paged(String(emb.next).replace(API, ""));
           rows = rows.concat(more.items);
           pageError = more.error;
+        } else if (!rows.length && total !== 0) {
+          // No embedded rows at all (a third shape?) — walk the items
+          // endpoints directly, newest name first.
+          for (const ep of ["items", "tracks"]) {
+            const more = await paged(
+              `/playlists/${id}/${ep}?limit=100&additional_types=track,episode`
+            );
+            rows = more.items;
+            pageError = more.error;
+            if (rows.length) break;
+          }
         }
         const items = rows
-          .map((r: any) => r?.track)
+          .map((r: any) => r?.track || r?.item)
           .filter((t: any) => t && t.uri)
           .map((t: any) => trackItem(t));
         if (!items.length && total > 0 && !pageError)
