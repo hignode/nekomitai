@@ -18,7 +18,7 @@ A CEP 12 panel extension for Adobe After Effects 2025/2026, with an optional bui
 - **Send to AE** — import the page's media into a project bin, or straight into the active comp
 - **Color grab** — eyedropper any pixel on screen into a solid in your project
 - **Timestamp markers** — drop comp markers carrying the video URL + timecode
-- **Auto-duck** — while AE is actually previewing (not scrubbing), every tab's audio ducks: music pauses, everything else mutes, and it all comes back when the preview stops
+- **Auto-duck** — while AE is actually previewing (not scrubbing), every tab ducks: playback pauses and keeps your place (muting only where pause isn't possible), and it all resumes when the preview stops
 - **Spotify Connect** — sign in with your own (free) Spotify app via OAuth PKCE and Spotify links become a full remote-control player for whatever Spotify device you're running — see [docs/SPOTIFY-CONNECT.md](docs/SPOTIFY-CONNECT.md)
 - **Login with cookies** — paste your own cookies to use logged-in sites in Web Mode — see [docs/LOGIN-WITH-COOKIES.md](docs/LOGIN-WITH-COOKIES.md)
 - **Adblock & anti-tracker** (opt-in, **off by default**) — powered by [@ghostery/adblocker](https://github.com/ghostery/adblocker) (MPL-2.0) over EasyList + EasyPrivacy

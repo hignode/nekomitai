@@ -145,8 +145,9 @@ export const renderViewPage = (
       f.src=EMBED+"&origin="+encodeURIComponent(location.origin);
       var player=null;
       var ready=false;
-      var autoMuted=false;
-      var wantAutoMute=false;
+      var autoPaused=false;
+      var pausedAt=0;
+      var wantDuck=false;
       var userOverride=false;
       var pendingVol=-1;
       var tag=document.createElement("script");
@@ -154,15 +155,22 @@ export const renderViewPage = (
       document.head.appendChild(tag);
       window.onYouTubeIframeAPIReady=function(){
         player=new YT.Player("yt",{events:{onReady:function(){
-          ready=true;applyAutoMute();applyVol();report();
+          ready=true;applyDuck();applyVol();report();
         }}});
       };
       function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
-      function applyAutoMute(){
+      // Duck PAUSES (not mutes): the reference keeps its place instead of
+      // silently running ahead during the AE preview. Only a playing/buffering
+      // video is paused, so releasing the duck can never start a video the
+      // user had stopped themselves.
+      function applyDuck(){
         try{
-          if(wantAutoMute){
-            if(!userOverride&&!player.isMuted()){player.mute();autoMuted=true;tell("muted");}
-          } else if(autoMuted){player.unMute();autoMuted=false;tell(null);}
+          if(wantDuck){
+            var s=player.getPlayerState();
+            if(!userOverride&&!autoPaused&&(s===1||s===3)){
+              player.pauseVideo();autoPaused=true;pausedAt=Date.now();tell("paused");
+            }
+          } else if(autoPaused){player.playVideo();autoPaused=false;tell(null);}
         }catch(err){}
       }
       function applyVol(){if(pendingVol<0)return;try{player.setVolume(Math.round(pendingVol*100));}catch(e){}}
@@ -170,9 +178,9 @@ export const renderViewPage = (
         var d=e.data; if(!d||d.nm!=="cmd")return;
         if(d.action==="duck"||d.action==="mute"||d.action==="resume"||d.action==="unmute"){
           var on=(d.action==="duck"||d.action==="mute");
-          wantAutoMute=on;
+          wantDuck=on;
           if(!on)userOverride=false;
-          if(ready)applyAutoMute();
+          if(ready)applyDuck();
           else if(!on)tell(null);
           return;
         }
@@ -194,7 +202,7 @@ export const renderViewPage = (
       var curId=${JSON.stringify(resolution.videoId)};
       var lastSnd=null,lastPlaying=false;
       // Audibility up to the shell — it gates the whole AE duck watchdog, so a
-      // paused tab costs AE nothing. While WE duck (wantAutoMute) it must stay
+      // paused tab costs AE nothing. While WE duck (wantDuck) it must stay
       // "audible" or the watchdog would stop before it can send the resume.
       function snd(on){
         if(on===lastSnd)return;
@@ -204,17 +212,22 @@ export const renderViewPage = (
       function report(){
         if(player&&player.getCurrentTime){
           try{
-            // user unmuted via the YT chrome mid-duck: respect it — clear our
-            // claim and stop re-ducks fighting them until the next resume
-            if(autoMuted&&!player.isMuted()){autoMuted=false;userOverride=true;tell(null);}
+            var s=player.getPlayerState?player.getPlayerState():-1;
+            // user pressed play in the YT chrome mid-duck: respect it — clear
+            // our claim and stop re-ducks fighting them until the next resume.
+            // The grace window skips the ticks where the state has not yet
+            // caught up with our own pauseVideo().
+            if(autoPaused&&s===1&&Date.now()-pausedAt>600){
+              autoPaused=false;userOverride=true;tell(null);
+            }
             var vd=player.getVideoData&&player.getVideoData();
             if(vd&&vd.video_id&&vd.video_id!==curId){
               curId=vd.video_id;
               parent.postMessage({nm:"nav",url:"https://www.youtube.com/watch?v="+curId},"*");
               parent.postMessage({nm:"meta",provider:"youtube",controllable:true,videoId:curId},"*");
             }
-            lastPlaying=!!(player.getPlayerState&&player.getPlayerState()===1);
-            snd(wantAutoMute?true:(lastPlaying&&!player.isMuted()));
+            lastPlaying=(s===1);
+            snd(wantDuck?true:(lastPlaying&&!player.isMuted()));
             parent.postMessage({nm:"time",current:player.getCurrentTime(),
               duration:player.getDuration(),
               playing:lastPlaying},"*");
@@ -239,8 +252,10 @@ export const renderViewPage = (
   if (resolution.kind === "embed") {
     // Vimeo / Dailymotion / SoundCloud / Spotify: play with their own
     // controls, but wire duck/resume/volume through each provider's
-    // postMessage API. Music (SoundCloud, Spotify) → duck PAUSES, keeping
-    // your place; video sites mute instead.
+    // postMessage API. Duck PAUSES wherever we can see real playback state
+    // (SoundCloud, Spotify, Vimeo-with-events), keeping your place; only
+    // Dailymotion, whose events aren't wired, still mutes — pausing blind
+    // would let a resume START a video the user had paused themselves.
 
     // Spotify without Connect is preview-only, and nothing in-panel can change
     // that — so say it plainly rather than letting the 30s cutoff look like a
@@ -336,13 +351,50 @@ export const renderViewPage = (
           setTimeout(function(){toPlayer({command:"play"});},900);
         });
       }
+      var vEvents=false; // a Vimeo playback event arrived → the channel works
+      var vOver=false;   // user pressed play mid-duck — stop fighting them
+      if(P==="vimeo"){
+        // Subscribe to the player's play/pause events (same JSON postMessage
+        // protocol its player.js wraps). Once they flow we KNOW whether it is
+        // playing, so duck can pause — keeping the user's place — instead of
+        // muting. If the events never arrive (protocol change, blocked), duck
+        // falls back to the old mute, so behavior never gets worse.
+        window.addEventListener("message",function(e){
+          if(e.source!==f.contentWindow)return;
+          var d=e.data;
+          if(typeof d==="string"){try{d=JSON.parse(d);}catch(err){return;}}
+          if(!d||!d.event)return;
+          if(d.event==="play"){
+            playing=true;vEvents=true;
+            // a play WE did not send while ducked = the user overriding the
+            // duck from the player chrome — drop our claim, stop re-pausing
+            if(ducked){ducked=false;vOver=true;tell(null);}
+          }
+          else if(d.event==="pause"){playing=false;vEvents=true;}
+          else if(d.event==="finish"||d.event==="ended"){playing=false;vEvents=true;}
+          else return;
+          snd();
+        });
+        f.addEventListener("load",function(){
+          setTimeout(function(){
+            toPlayer(JSON.stringify({method:"addEventListener",value:"play"}));
+            toPlayer(JSON.stringify({method:"addEventListener",value:"pause"}));
+            toPlayer(JSON.stringify({method:"addEventListener",value:"finish"}));
+            toPlayer(JSON.stringify({method:"addEventListener",value:"ended"}));
+          },1200);
+        });
+      }
       function duck(on){
+        if(!on)vOver=false;
         if(on===ducked)return;
         if(P==="soundcloud"||P==="spotify"){
           var pause=P==="spotify"?{command:"pause"}:JSON.stringify({method:"pause"});
           var play=P==="spotify"?{command:"play"}:JSON.stringify({method:"play"});
           if(on){ if(playing){toPlayer(pause);ducked=true;tell("paused");} }
           else { ducked=false;toPlayer(play);tell(null); }
+        } else if(P==="vimeo"&&vEvents){
+          if(on){ if(playing&&!vOver){toPlayer(JSON.stringify({method:"pause"}));ducked=true;tell("paused");} }
+          else { ducked=false;toPlayer(JSON.stringify({method:"play"}));tell(null); }
         } else if(P==="vimeo"){
           ducked=on;
           toPlayer(JSON.stringify({method:"setMuted",value:on}));
@@ -513,7 +565,6 @@ export const renderViewPage = (
         resolution.url
       )}},"*");
       var v=document.getElementById("v");
-      var MUSIC=${isAudio ? "true" : "false"}; // audio file = music → duck pauses
       var ducked=false;
       function tell(m){try{parent.postMessage({nm:"duckState",mode:m},"*");}catch(e){}}
       // Audibility up to the shell (gates the AE duck watchdog); ducked counts
@@ -528,16 +579,15 @@ export const renderViewPage = (
       window.addEventListener("message",function(e){
         var d=e.data; if(!d||d.nm!=="cmd")return;
         if(d.action==="duck"||d.action==="mute"){
-          if(!ducked){
-            if(MUSIC){ if(!v.paused){v.pause();ducked=true;} }
-            else if(!v.muted){v.muted=true;ducked=true;}
-            if(ducked)tell(MUSIC?"paused":"muted");
-          }
+          // Duck PAUSES, video and audio alike — the reference keeps its place
+          // instead of running ahead silently, and the !paused guard means a
+          // resume can never start media the user had stopped themselves.
+          if(!ducked&&!v.paused){v.pause();ducked=true;tell("paused");}
         }
         else if(d.action==="resume"||d.action==="unmute"){
           if(ducked){
             ducked=false;
-            try{ if(MUSIC)v.play(); else v.muted=false; }catch(e2){}
+            try{v.play();}catch(e2){}
             tell(null);
           }
         }

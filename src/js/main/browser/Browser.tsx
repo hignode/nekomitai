@@ -189,8 +189,10 @@ export const Browser = ({
   sendAllRef.current = sendAll;
 
   // Duck the reference audio in EVERY tab while the AE timeline is PLAYING and
-  // restore it when it stops. Music (SoundCloud/Spotify/audio files) pauses;
-  // everything else mutes — each view page picks its own mode.
+  // restore it when it stops. Ducking PAUSES wherever the view page can see
+  // real playback state (YouTube, Vimeo, SoundCloud, Spotify, media files) so
+  // the reference keeps its place; it falls back to muting where it can't
+  // (Dailymotion) — each view page picks its own mode.
   // Only real playback ducks — dragging the CTI (scrubbing) deliberately does
   // NOT. Two signals, either of which marks playback:
   //  1. AfterFX's Windows audio session emitting sound (preview with audio,
@@ -593,7 +595,7 @@ export const Browser = ({
               onClick={() => setFollowAE((v) => !v)}
               title={
                 followAE
-                  ? "Auto-duck is ON — while you preview in After Effects this reference audio gets out of the way (music pauses, everything else mutes). Click to turn off."
+                  ? "Auto-duck is ON — while you preview in After Effects this reference gets out of the way (playback pauses and keeps your place; it mutes where pausing isn't possible). Click to turn off."
                   : "Auto-duck is OFF — reference audio keeps playing over your After Effects preview. Click to turn on."
               }
             >
@@ -606,8 +608,10 @@ export const Browser = ({
                 ? "Reference audio ignores AE playback"
                 : aeBusy
                   ? activeDuck === "paused"
-                    ? "AE is playing — music paused"
-                    : "AE is playing — sound muted"
+                    ? "AE is playing — playback paused"
+                    : activeDuck === "muted"
+                      ? "AE is playing — sound muted"
+                      : "AE is playing"
                   : "Waiting for AE playback"}
             </span>
             <span className="nm-vol-group">
