@@ -65,6 +65,22 @@ export const Browser = ({
   const volumeRef = useRef(volume);
   const sendAllRef = useRef<(cmd: Cmd) => void>(() => {});
   const autoDucked = useRef(false);
+  // ExtendScript-safety state for the duck watchdog. Lives OUTSIDE the
+  // watchdog effect: the effect remounts whenever anyAudible/followAE/gateway
+  // change, and a remount must not forget a dialog chain in progress, a
+  // refusal backoff, or a dead sidecar — forgetting any of those reopens the
+  // "evalScript into a modal dialog" alert this state exists to prevent.
+  const esGuard = useRef({
+    sampleAt: 0, // when the sidecar last gave a definite answer
+    sampleModal: false, // that answer: a modal dialog is up in AfterFX
+    sampleBlocked: false, // that answer: AE's UI thread isn't answering
+    unsafeAt: 0, // last sample that said modal or blocked
+    wasModal: false, // previous sample's modal flag (edge detection)
+    meterDead: false, // the sidecar has given up — fall back to grace gating
+    graceFrom: 0, // first-ever watchdog mount, for the no-sidecar grace
+    backoff: 5000, // = BACKOFF_MIN
+    backoffUntil: 0, // engine refused a call (modal dialog up / teardown)
+  });
 
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
@@ -205,7 +221,8 @@ export const Browser = ({
   // ExtendScript is called ONLY when the events starve — never on a timer —
   // because while a modal dialog is up in AE every evalScript is refused WITH
   // a modal error alert shoved at the user. The sidecar's /aepeak response
-  // carries a "modal dialog up" flag that vetoes all ExtendScript here, and a
+  // carries "modal dialog up" and "UI thread blocked" flags; every evalScript
+  // here requires a FRESH sample with both clear (see safeForES), and a
   // refusal that slips through anyway backs off exponentially.
   // The whole watchdog (the in-AE heartbeat task, the /aepeak polling, any
   // pings) runs ONLY while some tab is actually audible — an open but silent
@@ -225,11 +242,16 @@ export const Browser = ({
     const HB_DEAD_MS = 30000; // starved THIS long = heartbeat lost, re-arm
     const REDUCK_MS = 1000; // re-broadcast duck while busy (idempotent) so
     // frames that (re)load mid-preview still duck
-    const MODAL_FRESH_MS = 1000; // trust a sidecar modal sample this recent
+    const SAFE_FRESH_MS = 600; // a "coast is clear" verdict needs a sidecar
+    // sample this recent (steady cadence is ~150ms)
+    const QUIET_MS = 800; // no ExtendScript this long after a sample that said
+    // modal/blocked — dialogs come in chains (file picker, then "missing
+    // footage") with gaps our sampling latency can't see into
     const BACKOFF_MIN = 5000; // after a refused evalScript wait at least this,
     const BACKOFF_MAX = 60000; // doubling per refusal up to this
     const FALLBACK_AFTER_MS = 5000; // armed but no event ever this long → the
     // event channel is broken, fall back to legacy ping polling
+    const GRACE_MS = 1500; // non-Windows only: there is no sidecar to ask
     let pending = false;
     let pendingSince = 0;
     let sustainedUntil = 0; // busy until this time
@@ -237,22 +259,46 @@ export const Browser = ({
     let hbSeen = false; // (fallback path) heartbeat observed alive via gap
     let disposed = false;
     let lastDuckSent = 0;
-    let backoff = BACKOFF_MIN;
-    let backoffUntil = 0; // engine refused a call (modal dialog up / teardown)
     let audioTimer: ReturnType<typeof setTimeout> | undefined;
     let lastHb = 0; // last nm.hb CSXS event from the in-AE heartbeat task
     let hbEverSeen = false; // the event channel is proven to work
-    let modal = false; // sidecar: a modal dialog is up in AfterFX
-    let modalAt = 0; // when that sample landed (0 = no sidecar / not yet)
     let armedAt = 0;
     let lastArmTry = 0;
-    const mountAt = Date.now();
+    const g = esGuard.current; // remount-surviving safety state — see its decl
+    const isWin = navigator.platform.toLowerCase().includes("win");
+    // Anchored to the FIRST mount, not this one: the grace covers panel
+    // startup, when a dialog may already be up and no sample can say so. A
+    // later remount (a tab going quiet mid-preview) must not re-impose a
+    // blackout on a panel that has been alive for minutes.
+    if (!g.graceFrom) g.graceFrom = Date.now();
 
     // While a modal dialog is up in AE, EVERY evalScript is refused and AE
     // alerts "Unable to execute script… Cannot run a script while a modal
-    // dialog is waiting for response" AT the user. Nothing below may call
-    // evalES while this is true (or while a refusal has us backing off).
-    const modalUp = () => modal && Date.now() - modalAt < MODAL_FRESH_MS;
+    // dialog is waiting for response" AT the user. And an evalScript issued
+    // while AE's UI thread is blocked (opening/closing a project) sits queued
+    // until AE gets back to it — often the exact moment a load-time dialog
+    // has appeared, same alert. So nothing below may call evalES unless a
+    // FRESH sidecar sample says "no modal, UI thread answering", never within
+    // QUIET_MS of a sample that said otherwise, and never while a refusal has
+    // us backing off. On Windows, no sample means NO call — at AE startup the
+    // sidecar takes seconds to compile while open-time dialogs are likeliest,
+    // and arming blind there was exactly the reported bug. Where the sidecar
+    // can't exist (macOS) or has given up for good (meterDead — PowerShell
+    // blocked by policy), a short post-mount grace is the best we have; that
+    // keeps auto-duck alive there at the old pre-sidecar alert risk instead
+    // of silently disabling it.
+    const safeForES = () => {
+      const now = Date.now();
+      if (now < g.backoffUntil) return false;
+      if (g.unsafeAt && now - g.unsafeAt < QUIET_MS) return false;
+      if (!isWin || g.meterDead) return now - g.graceFrom > GRACE_MS;
+      return (
+        g.sampleAt > 0 &&
+        now - g.sampleAt < SAFE_FRESH_MS &&
+        !g.sampleModal &&
+        !g.sampleBlocked
+      );
+    };
 
     // The in-AE heartbeat pushes to the panel — steady state costs zero
     // evalScript calls; the panel only ever pings when the events starve.
@@ -263,7 +309,7 @@ export const Browser = ({
     csi.addEventListener("nm.hb", onHb);
 
     const armHeartbeat = () => {
-      if (modalUp() || Date.now() < backoffUntil) return; // the loop retries
+      if (!safeForES()) return; // the loop retries
       lastArmTry = Date.now();
       evalES(
         "(function(){try{if($.global.__nmHbId)app.cancelTask($.global.__nmHbId);}catch(e){}" +
@@ -277,26 +323,26 @@ export const Browser = ({
           if (String(res) === "ok") armedAt = Date.now();
           else {
             // refused (a modal raced us) — treat like a refused ping
-            backoffUntil = Date.now() + backoff;
-            backoff = Math.min(backoff * 2, BACKOFF_MAX);
+            g.backoffUntil = Date.now() + g.backoff;
+            g.backoff = Math.min(g.backoff * 2, BACKOFF_MAX);
           }
         })
         .catch(() => {});
     };
     // Deliberately NOT armed here: a modal could be up right now and we can't
     // know until the sidecar's first sample lands. The interval below arms as
-    // soon as a fresh sample says it's safe (or after a short grace when
-    // there is no sidecar to ask, e.g. macOS).
+    // soon as a fresh sample says it's safe (on non-Windows, after the grace).
 
     // The repeating scheduleTask lives inside AE, not the panel — if the page
     // is torn down without cleanup (panel closed, AE quitting) it keeps firing
     // until AE dies. Cancel it on pagehide too, since React cleanup never
-    // runs on page teardown — but NOT while a modal is up (AE's quit-time
-    // "Save changes?" included): the cancel itself would be refused with an
-    // alert, and the orphaned task is harmless — its body is try/caught, it
-    // starves while any modal is up, and re-arming replaces it by id.
+    // runs on page teardown — but ONLY when it's provably safe (AE's
+    // quit-time "Save changes?" included): the cancel itself would be refused
+    // with an alert, and the orphaned task is harmless — its body is
+    // try/caught, it starves while any modal is up, and re-arming replaces it
+    // by id.
     const cancelHeartbeat = () => {
-      if (modalUp() || Date.now() < backoffUntil) return;
+      if (!safeForES()) return;
       evalES(
         '(function(){try{if($.global.__nmHbId){app.cancelTask($.global.__nmHbId);$.global.__nmHbId=0;}}catch(e){}return "ok";})()',
         true
@@ -329,16 +375,29 @@ export const Browser = ({
 
     // signal 2: AE itself is emitting audio (preview/scrub with sound).
     // Dedicated fast loop — each response acts immediately, then re-arms.
-    // The same response carries the sidecar's "modal dialog up" flag that
-    // gates every evalScript in this watchdog.
+    // The same response carries the sidecar's "modal dialog up" and "UI
+    // thread blocked" flags that gate every evalScript in this watchdog.
     const pollAudio = () => {
       if (disposed || !gateway) return;
       fetch(`${gateway.origin}/aepeak?t=${gateway.token}`)
         .then((r) => r.json())
         .then((r) => {
           if (r?.ok && typeof r.modal === "boolean") {
-            modal = r.modal;
-            modalAt = Date.now();
+            g.meterDead = false;
+            // r.at is the sidecar's production time — same machine clock, and
+            // honest about hiccups the gateway's own 2s staleness window hides
+            g.sampleAt =
+              typeof r.at === "number" && r.at > 0 ? r.at : Date.now();
+            g.sampleModal = r.modal;
+            g.sampleBlocked = r.busy === true;
+            if (g.sampleModal || g.sampleBlocked) g.unsafeAt = Date.now();
+            // a dialog just closed — whatever starvation the heartbeat
+            // accumulated behind it says nothing about preview; make a ping
+            // wait for a fresh HB_STALE_MS of silence first
+            if (g.wasModal && !g.sampleModal) lastHb = Date.now();
+            g.wasModal = g.sampleModal;
+          } else if (r?.ok && r.dead === true) {
+            g.meterDead = true; // no sidecar will ever answer — grace gating
           }
           if (r?.ok && r.peak > AUDIO_PEAK_MIN) bump(AUDIO_HOLD_MS);
           else evaluate(); // prompt resume once the hold expires
@@ -360,14 +419,25 @@ export const Browser = ({
         lastDuckSent = now;
       }
 
-      // arm (or re-try arming) the heartbeat once we know no modal dialog is
-      // in the way; with no sidecar to ask, a short grace stands in
+      // A ducked silent-comp preview is sustained purely by pings. If a
+      // transient busy/modal sample vetoes them while the heartbeat is still
+      // starved, hold the duck rather than audibly resuming the reference for
+      // an 800ms gap and re-pausing it (a paused reference through a dialog
+      // is benign; a mid-preview flap is not). Events resuming — the real
+      // "preview over" signal — end the starvation and release normally.
       if (
-        !armedAt &&
-        now - lastArmTry > 2000 &&
-        !modalUp() &&
-        (modalAt > 0 || now - mountAt > 1500)
+        busy &&
+        armedAt > 0 &&
+        hbEverSeen &&
+        now - lastHb > HB_STALE_MS &&
+        !safeForES()
       ) {
+        bump(IDLE_MS);
+      }
+
+      // arm (or re-arm, after the heartbeat was found dead below) the moment
+      // a fresh sidecar sample confirms the coast is clear
+      if (!armedAt && now - lastArmTry > 2000 && safeForES()) {
         armHeartbeat();
       }
 
@@ -376,12 +446,23 @@ export const Browser = ({
       // ping: ONE evalScript whose RTT separates preview (fast — the engine
       // answers while idle tasks stall) from a CTI drag / heavy UI (slow) —
       // dragging must never duck. A modal dialog also starves the events, but
-      // the sidecar flag vetoes the ping so AE is never asked then.
-      const wantPing = hbEverSeen
-        ? now - lastHb > HB_STALE_MS
-        : armedAt > 0 && now - armedAt > FALLBACK_AFTER_MS; // event channel
-      // broken → legacy 250ms ping polling (still modal-vetoed)
-      if (wantPing && !pending && now >= backoffUntil && !modalUp()) {
+      // the sidecar flags veto the ping so AE is never asked then. No pings
+      // at all unless WE armed a heartbeat this session — a dead one would
+      // read as eternal starvation and ping 4x/s into every future dialog.
+      const wantPing =
+        armedAt > 0 &&
+        (hbEverSeen
+          ? now - lastHb > HB_STALE_MS
+          : now - armedAt > FALLBACK_AFTER_MS); // event channel broken →
+      // legacy 250ms ping polling (still sidecar-vetoed)
+      // The fallback path pings continuously instead of on starvation, so at
+      // a UI-block onset it would fire on a just-pre-block clear sample; the
+      // heartbeat path is safe there because its 1s starvation requirement
+      // outlasts block-detection latency. Demand a near-live sample from the
+      // fallback to shrink that window.
+      const fallbackFresh =
+        hbEverSeen || !isWin || g.meterDead || now - g.sampleAt < 300;
+      if (wantPing && !pending && fallbackFresh && safeForES()) {
         pending = true;
         pendingSince = now;
         evalES(
@@ -397,17 +478,23 @@ export const Browser = ({
             // alert at the user — back off, doubling each refusal, until the
             // events or the modal flag say the coast is clear.
             if (!isFinite(gap)) {
-              backoffUntil = Date.now() + backoff;
-              backoff = Math.min(backoff * 2, BACKOFF_MAX);
+              g.backoffUntil = Date.now() + g.backoff;
+              g.backoff = Math.min(g.backoff * 2, BACKOFF_MAX);
               return;
             }
-            backoff = BACKOFF_MIN;
-            if (gap >= 0 && gap < HB_STALE_MS) hbSeen = true;
-            if (gap > HB_DEAD_MS) {
+            g.backoff = BACKOFF_MIN;
+            if (gap < 0 || gap > HB_DEAD_MS) {
+              // $.global.__nmHb is missing or ancient — the engine was reset
+              // or the task cancelled (project close does this). Stop pinging
+              // immediately and let the arm branch above re-establish the
+              // heartbeat under the same safety gates. (gap of -1 used to
+              // slip past a `> HB_DEAD_MS` check, leaving a dead heartbeat
+              // pinging 4x/s forever — the open/close alert generator.)
+              armedAt = 0;
               hbSeen = false;
-              if (Date.now() - lastArmTry > 5000) armHeartbeat();
               return;
             }
+            if (gap < HB_STALE_MS) hbSeen = true;
             const starved = hbEverSeen
               ? gap > HB_STALE_MS && Date.now() - lastHb > HB_STALE_MS
               : hbSeen && gap > HB_STALE_MS;

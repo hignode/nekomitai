@@ -46,7 +46,7 @@ export type GatewayInfo = {
 };
 
 const BASE_PORT = 45789;
-const VERSION = "0.8.4";
+const VERSION = "0.8.5";
 
 let current: GatewayInfo | null = null;
 

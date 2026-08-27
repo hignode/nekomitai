@@ -13,8 +13,16 @@
  * and is killed after 5 idle minutes — the panel only polls /aepeak while a
  * tab is audibly playing, so an idle panel keeps zero background processes
  * sampling COM. The first query after a cold stop reads 0 for the second or
- * two the sidecar takes to compile its C# shim; the duck watchdog's
- * heartbeat signal covers that gap.
+ * two the sidecar takes to compile its C# shim; the duck watchdog holds ALL
+ * ExtendScript until the first sample lands (see Browser.tsx's safeForES).
+ * Because that makes the sidecar a hard gate, a meter that has given up
+ * (PowerShell blocked by policy, repeated crashes) is reported as `dead` so
+ * the watchdog can fall back to grace-gated ExtendScript instead of going
+ * silently inert; a cold retry every 10 minutes probes for recovery.
+ *
+ * All probes are scoped to the HOST AfterFX instance when it can be found
+ * (CEPHtmlEngine's parent process) — another AE instance's audio, dialogs,
+ * or blocked UI thread must not steer this panel.
  *
  * The sidecar also reports whether a MODAL DIALOG is up in AfterFX (any
  * visible top-level AfterFX window that Windows has disabled — a modal always
@@ -23,20 +31,33 @@
  * watchdog uses this flag to hold all ExtendScript traffic until the dialog
  * closes. `modal: null` means "no fresh sample" (cold start, non-Windows) —
  * callers must treat that as unknown, not as "no modal".
+ *
+ * It also reports whether AfterFX's UI thread is currently ANSWERING
+ * (SendMessageTimeout WM_NULL). Opening or closing a project blocks AE's main
+ * thread for seconds with no modal up yet; an evalScript issued into that
+ * block sits queued until AE services it — frequently at the exact moment a
+ * load-time dialog (missing footage, "saved in a newer version") has
+ * appeared, turning the queued call into the same refusal alert. `busy` warns
+ * the watchdog off before the call is ever issued; like `modal`, null means
+ * unknown.
  */
 import { child_process } from "../cep/node";
 
 let child: ReturnType<typeof child_process.spawn> | null = null;
-let last = { peak: 0, modal: false, at: 0 };
+let last = { peak: 0, modal: false, busy: false, at: 0 };
 let failures = 0;
+let gaveUp = false; // 6 spawns died without a single parsed sample
+let gaveUpAt = 0;
 let retryScheduled = false;
 let stopping = false; // deliberate idle shutdown in flight — not a failure
 let lastQuery = 0;
 let idleTimer: ReturnType<typeof setInterval> | null = null;
 
 const IDLE_STOP_MS = 5 * 60_000; // no /aepeak query this long → stop sampling
+const RETRY_COLD_MS = 10 * 60_000; // after giving up, probe again this often
 
-// Prints "P <peak> <modal01>" (invariant-culture float) every 80ms; exits
+// Prints "P <peak> <modal01> <busy01>" (invariant-culture float) every 80ms
+// (plus up to the WM_NULL timeout while AE's UI thread is blocked); exits
 // when the parent pipe closes so reloads never accumulate orphan sidecars.
 const PS_SCRIPT = `
 Add-Type -TypeDefinition @"
@@ -111,6 +132,62 @@ namespace NMAudio {
       return true;
     }
   }
+  public static class Busy {
+    delegate bool EnumProc(IntPtr hwnd, IntPtr lparam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr lparam);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
+    [DllImport("user32.dll", SetLastError=true)] static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp, uint flags, uint timeout, out IntPtr result);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+    static uint pidWanted; static IntPtr best; static long bestArea;
+    // Find AE's main window ourselves rather than trusting .NET's
+    // MainWindowHandle, and probe ONLY that one: it belongs to the main UI
+    // thread, the same thread ExtendScript runs on. Scanning every window
+    // instead would let one plugin's non-pumping worker-thread window latch
+    // "blocked" forever. Selection uses only non-messaging calls (a
+    // GetWindowText here would itself hang on a hung window): visible,
+    // unowned, largest by area.
+    public static IntPtr MainWindow(uint pid) {
+      pidWanted = pid; best = IntPtr.Zero; bestArea = -1;
+      EnumWindows(Pick, IntPtr.Zero);
+      return best;
+    }
+    static bool Pick(IntPtr hwnd, IntPtr l) {
+      uint pid; GetWindowThreadProcessId(hwnd, out pid);
+      if (pid != pidWanted || !IsWindowVisible(hwnd)) return true;
+      if (GetWindow(hwnd, 4) != IntPtr.Zero) return true; // GW_OWNER — skip dialogs
+      RECT r;
+      if (!GetWindowRect(hwnd, out r)) return true;
+      long area = (long)(r.R - r.L) * (long)(r.B - r.T);
+      if (area > bestArea) { bestArea = area; best = hwnd; }
+      return true;
+    }
+    // Two signals, because they cover different durations. IsHungAppWindow is
+    // what Windows itself uses to paint "Not Responding" — free, no waiting,
+    // but it only trips after ~5s of a starved message pump. WM_NULL is a
+    // no-op a healthy UI thread answers instantly, so a 400ms timeout catches
+    // the shorter blocks; it is generous enough that RAM-preview frame
+    // hitches don't read as "blocked". 0x0008 = SMTO_ABORTIFHUNG so an
+    // already-hung thread returns at once instead of burning the timeout.
+    // ONLY ERROR_TIMEOUT counts: any other failure (window destroyed mid-
+    // probe, invalid handle) is not evidence of a blocked UI.
+    public static bool Blocked(IntPtr hwnd) {
+      if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return false;
+      if (IsHungAppWindow(hwnd)) return true;
+      IntPtr res;
+      if (SendMessageTimeout(hwnd, 0, IntPtr.Zero, IntPtr.Zero, 0x0008, 400, out res) == IntPtr.Zero) {
+        return Marshal.GetLastWin32Error() == 1460 && IsWindow(hwnd); // ERROR_TIMEOUT
+      }
+      return false;
+    }
+    public static bool Alive(IntPtr hwnd) {
+      return hwnd != IntPtr.Zero && IsWindow(hwnd);
+    }
+  }
   public static class Meter {
     public static float PeakForPids(uint[] pids) {
       float max = 0f;
@@ -147,20 +224,29 @@ namespace NMAudio {
 }
 "@
 $pids = @()
+$hostPid = [uint32]${process.ppid || 0}
+$mainHwnd = [IntPtr]::Zero
 $i = 0
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 while ($true) {
-  if ($i % 60 -eq 0) {
+  if ($i % 60 -eq 0 -or (($i % 12) -eq 0 -and -not [NMAudio.Busy]::Alive($mainHwnd))) {
     $pids = @(Get-Process -Name AfterFX -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+    if ($hostPid -gt 0 -and $pids -contains $hostPid) { $pids = @($hostPid) }
+    $mainHwnd = [IntPtr]::Zero
+    if ($pids.Count -gt 0) {
+      try { $mainHwnd = [NMAudio.Busy]::MainWindow([uint32]$pids[0]) } catch { }
+    }
   }
   $i++
   $peak = 0.0
   $modal = 0
+  $busy = 0
   if ($pids.Count -gt 0) {
     try { $peak = [NMAudio.Meter]::PeakForPids([uint32[]]$pids) } catch { $peak = 0.0 }
     try { if ([NMAudio.Modal]::UpForPids([uint32[]]$pids)) { $modal = 1 } } catch { $modal = 0 }
+    try { if ([NMAudio.Busy]::Blocked($mainHwnd)) { $busy = 1 } } catch { $busy = 0 }
   }
-  try { [Console]::Out.WriteLine("P " + $peak.ToString("0.0000", $inv) + " " + $modal) } catch { exit }
+  try { [Console]::Out.WriteLine("P " + $peak.ToString("0.0000", $inv) + " " + $modal + " " + $busy) } catch { exit }
   Start-Sleep -Milliseconds 80
 }
 `;
@@ -185,8 +271,14 @@ const spawnMeter = (): void => {
           const parts = line.slice(2).split(" ");
           const v = parseFloat(parts[0]);
           if (isFinite(v)) {
-            last = { peak: v, modal: parts[1] === "1", at: Date.now() };
+            last = {
+              peak: v,
+              modal: parts[1] === "1",
+              busy: parts[2] === "1",
+              at: Date.now(),
+            };
             failures = 0;
+            gaveUp = false;
           }
         }
       }
@@ -207,7 +299,14 @@ const onExit = (): void => {
   if (retryScheduled) return;
   retryScheduled = true;
   failures++;
-  if (failures > 5) return; // give up quietly — /aepeak just reports 0
+  if (failures > 5) {
+    // give up — /aepeak reports dead so the watchdog can fall back, and
+    // ensureRunning probes again after a long cool-off
+    gaveUp = true;
+    gaveUpAt = Date.now();
+    retryScheduled = false;
+    return;
+  }
   setTimeout(() => {
     retryScheduled = false;
     // only respawn if something is still asking for peaks
@@ -217,7 +316,14 @@ const onExit = (): void => {
 
 const ensureRunning = (): void => {
   if (process.platform !== "win32") return;
-  if (!child && !retryScheduled && failures <= 5) spawnMeter();
+  if (!child && !retryScheduled) {
+    if (failures <= 5) spawnMeter();
+    else if (Date.now() - gaveUpAt > RETRY_COLD_MS) {
+      failures = 0;
+      gaveUpAt = Date.now();
+      spawnMeter();
+    }
+  }
   if (!idleTimer) {
     idleTimer = setInterval(() => {
       if (Date.now() - lastQuery <= IDLE_STOP_MS) return;
@@ -237,14 +343,19 @@ const ensureRunning = (): void => {
   }
 };
 
-/** Latest AfterFX audio peak (0..1) and modal-dialog flag; stale samples read
- * as silence / modal-unknown. Querying is what keeps the sidecar alive — see
- * the header comment. */
+/** Latest AfterFX audio peak (0..1), modal-dialog flag, and UI-thread-blocked
+ * flag; stale samples read as silence / unknown. `dead` marks a meter that
+ * has given up entirely (PowerShell blocked, repeated crashes) — the duck
+ * watchdog needs to distinguish "no sample YET" (hold ExtendScript) from "no
+ * sample EVER" (fall back or auto-duck goes silently inert). Querying is what
+ * keeps the sidecar alive — see the header comment. */
 export const getAePeak = (): {
   peak: number;
   at: number;
   alive: boolean;
   modal: boolean | null;
+  busy: boolean | null;
+  dead: boolean;
 } => {
   lastQuery = Date.now();
   ensureRunning();
@@ -254,5 +365,7 @@ export const getAePeak = (): {
     at: last.at,
     alive: fresh,
     modal: fresh ? last.modal : null,
+    busy: fresh ? last.busy : null,
+    dead: process.platform === "win32" && gaveUp && !fresh,
   };
 };
